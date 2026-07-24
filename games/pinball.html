@@ -102,6 +102,11 @@ function note(freq, t, dur, type, vol, slide){
   o.connect(g).connect(AC.destination);
   o.start(t); o.stop(t + dur);
 }
+function melody(freqs, step, dur, type, vol){
+  if (!AC) return;
+  const t = AC.currentTime;
+  freqs.forEach((f,i) => note(f, t + i*step, dur, type, vol));
+}
 function noiseHit(t, vol){
   if (!AC) return;
   if (!noiseBuf){
@@ -118,45 +123,77 @@ function noiseHit(t, vol){
   s.start(t);
 }
 
-/* ---------- muzyka: syntezatorowy loop, tempo rośnie z poziomem ---------- */
+/* ---------- muzyka: syntezatorowy loop, tempo rośnie z poziomem i FEVER ---------- */
 const music = { on: true, next: 0, step: 0 };
 const BASS = [45,45,48,45,43,43,41,43];      // MIDI, A-moll
 const ARP  = [69,72,76,79,81,79,76,72];
 const mtof = m => 440 * Math.pow(2, (m-69)/12);
 function musicTick(){
   if (!AC || !music.on || state !== "play"){ if (AC) music.next = AC.currentTime + 0.1; return; }
-  const bpm = 104 + level*8;
+  const bpm = 104 + level*8 + (effects.fever > 0 ? 24 : 0);
   const spb = 30/bpm;                        // ósemka
   if (music.next < AC.currentTime) music.next = AC.currentTime + 0.05;
   while (music.next < AC.currentTime + 0.3){
     const t = music.next, s = music.step;
+    const oct = (Math.floor(s/8) % 4 === 3) ? 2 : 1;   // co czwarty takt oktawa wyżej
     note(mtof(BASS[s%8]), t, spb*0.85, "sawtooth", 0.035);
-    note(mtof(ARP[s%8]), t, spb*0.5, "square", 0.015);
+    note(mtof(ARP[s%8]) * oct, t, spb*0.5, "square", 0.015);
     if (s%2 === 0) noiseHit(t, 0.012);
     if (s%8 === 7) noiseHit(t, 0.022);
     music.next += spb; music.step++;
   }
 }
 setInterval(musicTick, 80);
-function jingle(){
-  if (!AC) return;
-  const t = AC.currentTime;
-  [523,659,784,1047].forEach((f,i) => note(f, t + i*0.09, 0.14, "square", 0.05));
-}
+function jingle(){ melody([523,659,784,1047], 0.09, 0.14, "square", 0.05); }
 
 /* ---------- stan gry ---------- */
 let state = "title";         // title | play | over
-let score = 0, balls = 3, level = 1;
+let score = 0, lives = 3, level = 1;
 let hi = +(localStorage.getItem("bzzzball-hi") || 0);
 let newHi = false;
-let shake = 0, blink = 0, T = 0;
-const ball = { x: 443, y: 640, vx: 0, vy: 0, r: 9, trail: [], still: 0 };
+let shake = 0, blink = 0, T = 0, flash = 0;
+let ballsList = [];
 const plunger = { power: 0, charging: false };
 const msgs = [];             // komunikaty na planszy
+const popups = [];           // wyskakujące punkty
+const sparks = [];           // iskry
+let combo = 0, lastHit = -9;
+const effects = { fever: 0, shield: 0, big: 0, slow: 0 };
 
-function addScore(n){ score += n * level; }
-function inLane(){ return ball.x > 424; }
+function newBall(x,y,vx,vy){
+  return { x, y, vx: vx||0, vy: vy||0, r: 9, trail: [], still: 0, warp: 0 };
+}
+function bR(){ return effects.big > 0 ? 15 : 9; }
+function inLane(b){ return b.x > 424; }
+function addScore(n){ score += n * level * (effects.fever > 0 ? 2 : 1); }
 function say(text, dur){ msgs.push({ text, t: 0, dur: dur || 1.6 }); }
+function popup(x, y, txt){
+  popups.push({ x: Math.max(45, Math.min(435, x)), y, txt, t: 0 });
+}
+// wibracje (telefony z Androidem; iOS Safari nie wspiera navigator.vibrate)
+function buzz(pattern){
+  if (navigator.vibrate){ try { navigator.vibrate(pattern); } catch(e){} }
+}
+function spawnSparks(x, y, c, n, sp){
+  for (let i = 0; i < n; i++){
+    const a = Math.random()*Math.PI*2, v = (0.3+Math.random()*0.7)*(sp||260);
+    sparks.push({ x, y, vx: Math.cos(a)*v, vy: Math.sin(a)*v - 60, life: 0.55, c });
+  }
+}
+function registerHit(x, y, base){
+  combo = (T - lastHit < 1.8) ? combo + 1 : 1;
+  lastHit = T;
+  const pts = base * level * (effects.fever > 0 ? 2 : 1);
+  score += pts;
+  buzz(12);
+  popup(x, y - 14, "+" + pts + (combo >= 3 ? " ×" + combo : ""));
+  if (combo > 0 && combo % 8 === 0){
+    effects.fever = Math.max(effects.fever, 8);
+    say("BZZZ FRENZY!  PUNKTY ×2", 2.2);
+    melody([440,554,659,880,1109], 0.07, 0.12, "sawtooth", 0.05);
+    flash = Math.max(flash, 0.25);
+  }
+}
 function gravScale(){ return 1 + Math.min(0.4, 0.06*(level-1)); }
 
 /* ---------- geometria stołu ---------- */
@@ -198,6 +235,12 @@ const bumpers = [
 ];
 const posts = [ {x:424,y:300,r:5} ];
 
+// gwiazdy w tle
+const stars = Array.from({length:42}, () => ({
+  x: 30 + Math.random()*420, y: 30 + Math.random()*660,
+  s: 0.6 + Math.random()*1.4, ph: Math.random()*7,
+}));
+
 /* ---------- drop targety: zbij wszystkie = następny poziom ---------- */
 let targets = [];
 function spawnTargets(){
@@ -210,16 +253,86 @@ function spawnTargets(){
 }
 spawnTargets();
 
+/* ---------- rollovery B-Z-Z-Z pod łukiem ---------- */
+let letters = [];
+function resetLetters(){
+  letters = [
+    { ch:"B", x:150, y:105, lit:false },
+    { ch:"Z", x:198, y: 88, lit:false },
+    { ch:"Z", x:246, y: 88, lit:false },
+    { ch:"Z", x:294, y:105, lit:false },
+  ];
+}
+resetLetters();
+
+/* ---------- bonusy do złapania ---------- */
+const PICKUP_TYPES = [
+  { k:"FEVER",  c:"#FFC93C", w:24 },
+  { k:"SHIELD", c:"#28F2E4", w:20 },
+  { k:"BIG",    c:"#FF3EA5", w:15 },
+  { k:"SLOW",   c:"#7B5CFF", w:15 },
+  { k:"MULTI",  c:"#FF6B35", w:16 },
+  { k:"1UP",    c:"#7CFF6B", w:10 },
+];
+const PICKUP_SLOTS = [ [100,340],[344,340],[70,250],[374,250],[222,300] ];
+let pickups = [], pickupTimer = 6;
+function rollPickupType(){
+  const total = PICKUP_TYPES.reduce((a,t) => a+t.w, 0);
+  let r = Math.random()*total;
+  for (const t of PICKUP_TYPES){ r -= t.w; if (r <= 0) return t; }
+  return PICKUP_TYPES[0];
+}
+function spawnPickup(fx, fy){
+  if (pickups.length >= 2 && fx === undefined) return;
+  const slot = PICKUP_SLOTS[Math.floor(Math.random()*PICKUP_SLOTS.length)];
+  const taken = pickups.some(p => Math.abs(p.x-slot[0]) < 5 && Math.abs(p.y-slot[1]) < 5);
+  const x = fx !== undefined ? fx : (taken ? slot[0] : slot[0]);
+  pickups.push({ x: fx !== undefined ? fx : slot[0], y: fy !== undefined ? fy : slot[1],
+                 type: rollPickupType(), t: 0, life: 9 });
+}
+function applyPickup(p, b){
+  const k = p.type.k;
+  spawnSparks(p.x, p.y, p.type.c, 14, 320);
+  buzz([20,30,20]);
+  if (k === "1UP"){
+    lives++;
+    say("EXTRA PSZCZOŁA! +1 ŻYCIE", 2);
+    melody([660,880,1320], 0.1, 0.16, "square", 0.06);
+  } else if (k === "MULTI"){
+    ballsList.push(newBall(p.x, p.y, -220, -180), newBall(p.x, p.y, 220, -180));
+    say("MULTIBALL!", 2.2);
+    melody([392,523,659,784,1047,1319], 0.06, 0.12, "square", 0.055);
+    flash = Math.max(flash, 0.3);
+  } else if (k === "SHIELD"){
+    effects.shield = 8;
+    say("TARCZA NAD RYNNĄ  8s", 2);
+    melody([330,494,659], 0.08, 0.14, "triangle", 0.06);
+  } else if (k === "BIG"){
+    effects.big = 10;
+    say("WIELKA KULA!  10s", 2);
+    beep(90, .35, "sawtooth", .07, 160);
+  } else if (k === "SLOW"){
+    effects.slow = 6;
+    say("SLOW-MO  6s", 2);
+    beep(700, .4, "sine", .06, -500);
+  } else if (k === "FEVER"){
+    effects.fever = Math.max(effects.fever, 10);
+    say("FEVER!  PUNKTY ×2  10s", 2);
+    melody([523,659,784], 0.07, 0.12, "square", 0.05);
+  }
+  popup(p.x, p.y, k === "1UP" ? "1UP!" : k);
+}
+
 /* ---------- futurystyczny tunel (od poziomu 2) ---------- */
 const portal = {
   in: {x:64, y:440, r:13}, out: {x:352, y:112, r:13},
-  cool: 0, warp: 0,
+  cool: 0,
 };
 function portalActive(){ return level >= 2; }
 
-/* ---------- lasery (poziom 3+: jeden, 5+: dwa) ---------- */
+/* ---------- lasery (poziom 3+: jeden, 6+: dwa) ---------- */
 const LASERS = [ {y:420, phase:0}, {y:380, phase:Math.PI} ];
-function laserCount(){ return level >= 5 ? 2 : (level >= 3 ? 1 : 0); }
+function laserCount(){ return level >= 6 ? 2 : (level >= 3 ? 1 : 0); }
 function laserX(i){
   const w = 0.9 + 0.12*level;
   return 222 + Math.sin(T*w + LASERS[i].phase) * 112;
@@ -229,6 +342,11 @@ const LASER_HALF = 40, LASER_R = 5;
 /* ---------- wir magnetyczny (poziom 4+) ---------- */
 const vortex = { x:222, y:495, R:110, F:280 };
 function vortexActive(){ return level >= 4; }
+
+/* ---------- wiatrak (poziom 5+) ---------- */
+const rotor = { x:222, y:250, len:50, r:5 };
+function rotorActive(){ return level >= 5; }
+function rotorAng(){ return T * (2.0 + 0.15*level); }
 
 /* ---------- flippery ---------- */
 function mkFlipper(px,py,dir){
@@ -271,10 +389,11 @@ function collideSeg(b,s){
       b.vx += nx*s.kick; b.vy += ny*s.kick;
       s.flash = 1; shake = 3;
       beep(480+Math.random()*90, .08, "square", .055);
+      spawnSparks(cx, cy, "#FF3EA5", 7);
+      if (s.score) registerHit(cx, cy, s.score);
     } else if (vn < -260){
       beep(120, .04, "triangle", .03);
     }
-    if (s.score) addScore(s.score);
   }
 }
 function collideCircle(b,p,kick,scoreVal){
@@ -288,11 +407,12 @@ function collideCircle(b,p,kick,scoreVal){
   if (kick){
     b.vx += nx*kick; b.vy += ny*kick;
     p.flash = 1; shake = 4;
-    addScore(scoreVal);
+    registerHit(p.x, p.y, scoreVal);
+    spawnSparks(b.x, b.y, p.c || "#FFC93C", 9);
     beep(200+Math.random()*220, .09, "square", .06, -80);
   }
 }
-// statyczna kapsuła (drop targety, lasery); zwraca normalną albo null
+// statyczna kapsuła (drop targety, lasery, tarcza); zwraca normalną albo null
 function collideCapsule(b, x1,y1,x2,y2, rad, rest){
   const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy || 1;
   let t = ((b.x-x1)*dx + (b.y-y1)*dy) / L2;
@@ -306,6 +426,32 @@ function collideCapsule(b, x1,y1,x2,y2, rad, rest){
   const vn = b.vx*nx + b.vy*ny;
   if (vn < 0){ b.vx -= (1+rest)*vn*nx; b.vy -= (1+rest)*vn*ny; }
   return { nx, ny, vn };
+}
+// wirujący wiatrak: kapsuła obracająca się wokół środka, oddaje pęd obrotu
+function collideRotor(b){
+  const ang = rotorAng(), w = 2.0 + 0.15*level;
+  const dx = Math.cos(ang)*rotor.len, dy = Math.sin(ang)*rotor.len;
+  const x1 = rotor.x-dx, y1 = rotor.y-dy, x2 = rotor.x+dx, y2 = rotor.y+dy;
+  const ddx = x2-x1, ddy = y2-y1, L2 = ddx*ddx+ddy*ddy;
+  let t = ((b.x-x1)*ddx + (b.y-y1)*ddy) / L2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = x1+t*ddx, cy = y1+t*ddy;
+  let nx = b.x-cx, ny = b.y-cy;
+  const d = Math.hypot(nx,ny), rr = b.r+rotor.r;
+  if (d >= rr || d === 0) return;
+  nx/=d; ny/=d;
+  b.x = cx + nx*rr; b.y = cy + ny*rr;
+  const rx = cx-rotor.x, ry = cy-rotor.y;
+  const vfx = -w*ry, vfy = w*rx;            // prędkość punktu styku ramienia
+  const rvx = b.vx-vfx, rvy = b.vy-vfy;
+  const vn = rvx*nx + rvy*ny;
+  if (vn < 0){
+    b.vx -= 1.8*vn*nx; b.vy -= 1.8*vn*ny;
+    shake = 4;
+    buzz(15);
+    spawnSparks(cx, cy, "#FF6B35", 8);
+    beep(150, .08, "sawtooth", .06, 250);
+  }
 }
 function collideFlipper(b,f){
   const tip = flipTip(f);
@@ -334,45 +480,61 @@ function collideFlipper(b,f){
 
 /* ---------- przebieg gry ---------- */
 function resetBall(){
-  ball.x = 443; ball.y = 640; ball.vx = 0; ball.vy = 0;
-  ball.trail.length = 0; ball.still = 0;
+  ballsList = [ newBall(443, 640) ];
   plunger.power = 0; plunger.charging = false;
-  portal.warp = 0; portal.cool = 0;
+  portal.cool = 0;
 }
 function newGame(){
-  score = 0; balls = 3; level = 1; newHi = false;
-  msgs.length = 0;
-  spawnTargets();
+  score = 0; lives = 3; level = 1; newHi = false;
+  combo = 0; lastHit = -9;
+  msgs.length = 0; popups.length = 0; pickups.length = 0;
+  effects.fever = effects.shield = effects.big = effects.slow = 0;
+  pickupTimer = 6;
+  spawnTargets(); resetLetters();
   state = "play"; resetBall();
 }
-function drain(){
-  balls--;
+function loseLife(){
+  lives--;
+  effects.fever = effects.shield = effects.big = effects.slow = 0;
+  combo = 0;
+  buzz(90);
   beep(200, .4, "triangle", .07, -150);
-  if (balls <= 0){
+  if (lives <= 0){
     state = "over";
     if (score > hi){ hi = score; newHi = true; localStorage.setItem("bzzzball-hi", hi); }
   } else {
+    say("KULKA STRACONA — ZOSTAŁO " + lives, 1.8);
     resetBall();
   }
 }
 function levelUp(){
   if (level < MAXLEVEL) level++;
-  jingle(); shake = 6;
+  jingle(); shake = 6; flash = 0.45;
+  buzz([30,40,30,40,60]);
   say("POZIOM " + level + "  —  MNOŻNIK ×" + level, 2.2);
   if (level === 2) say("TUNEL CZASOPRZESTRZENNY ONLINE", 2.6);
   if (level === 3) say("UWAGA: LASER!", 2.6);
   if (level === 4) say("WIR MAGNETYCZNY AKTYWNY", 2.6);
-  if (level === 5) say("DRUGI LASER!", 2.6);
-  spawnTargets();
+  if (level === 5) say("WIATRAK! UWAŻAJ NA ŁOPATY", 2.6);
+  if (level === 6) say("DRUGI LASER!", 2.6);
+  if (level === 7) say("BUMPER ZERWAŁ SIĘ ZE SMYCZY!", 2.6);
+  spawnTargets(); resetLetters();
+  spawnSparks(222, 360, "#FFC93C", 26, 420);
 }
 function releasePlunger(){
   if (!plunger.charging) return;
   plunger.charging = false;
-  if (state === "play" && inLane() && ball.y > 560 && Math.abs(ball.vy) < 60){
-    ball.vy = -(950 + plunger.power*650);
+  const b = ballsList.find(bb => inLane(bb) && bb.y > 560 && Math.abs(bb.vy) < 60);
+  if (state === "play" && b){
+    b.vy = -(950 + plunger.power*650);
+    buzz(25);
     beep(140, .3, "sawtooth", .06, 620);
   }
   plunger.power = 0;
+}
+function ballOnPlunger(){
+  return state === "play" &&
+    ballsList.some(b => inLane(b) && b.y > 560 && Math.abs(b.vy) < 60);
 }
 
 function step(dt){
@@ -381,97 +543,177 @@ function step(dt){
   segs.forEach(s => { if (s.flash>0) s.flash = Math.max(0, s.flash - dt*3.5); });
   bumpers.forEach(p => { if (p.flash>0) p.flash = Math.max(0, p.flash - dt*3.5); });
   targets.forEach(tg => { if (tg.flash>0) tg.flash = Math.max(0, tg.flash - dt*3.5); });
+  if (flash > 0) flash = Math.max(0, flash - dt*1.6);
+  for (let i = sparks.length-1; i >= 0; i--){
+    const s = sparks[i];
+    s.life -= dt;
+    if (s.life <= 0){ sparks.splice(i,1); continue; }
+    s.vy += 700*dt;
+    s.x += s.vx*dt; s.y += s.vy*dt;
+  }
   if (state !== "play") return;
 
-  if (plunger.charging && inLane()) plunger.power = Math.min(1, plunger.power + dt*1.15);
+  for (const k in effects) if (effects[k] > 0) effects[k] = Math.max(0, effects[k] - dt);
 
-  // podróż tunelem: kulka znika, po chwili wypada z drugiego końca
-  if (portal.warp > 0){
-    portal.warp -= dt;
-    if (portal.warp <= 0){
-      ball.x = portal.out.x; ball.y = portal.out.y;
-      ball.vx = -70; ball.vy = 260;
-      ball.trail.length = 0;
-      beep(880, .18, "sine", .06, -400);
-    }
-    return;
+  // bumper centralny ucieka od poziomu 7
+  bumpers[2].x = level >= 7 ? 222 + Math.sin(T*1.1)*58 : 222;
+
+  // pojawianie się bonusów
+  pickupTimer -= dt;
+  if (pickupTimer <= 0){
+    if (pickups.length < 2) spawnPickup();
+    pickupTimer = 9 + Math.random()*4;
   }
+  for (let i = pickups.length-1; i >= 0; i--){
+    pickups[i].t += dt;
+    if (pickups[i].t > pickups[i].life) pickups.splice(i,1);
+  }
+
+  if (plunger.charging && ballOnPlunger()) plunger.power = Math.min(1, plunger.power + dt*1.15);
   if (portal.cool > 0) portal.cool -= dt;
 
-  ball.vy += G * gravScale() * dt;
+  const dtb = dt * (effects.slow > 0 ? 0.55 : 1);   // slow-mo działa na kulki
 
-  // wir magnetyczny ciągnie w stronę rynny
-  if (vortexActive()){
-    const dx = vortex.x-ball.x, dy = vortex.y-ball.y;
-    const d = Math.hypot(dx,dy);
-    if (d < vortex.R && d > 5){
-      const f = vortex.F * (1 - d/vortex.R);
-      ball.vx += dx/d * f * dt;
-      ball.vy += dy/d * f * dt;
+  for (const b of ballsList){
+    b.r = bR();
+
+    // podróż tunelem: kulka znika, po chwili wypada z drugiego końca
+    if (b.warp > 0){
+      b.warp -= dtb;
+      if (b.warp <= 0){
+        b.x = portal.out.x; b.y = portal.out.y;
+        b.vx = -70; b.vy = 260;
+        b.trail.length = 0;
+        beep(880, .18, "sine", .06, -400);
+      }
+      continue;
+    }
+
+    b.vy += G * gravScale() * dtb;
+
+    // wir magnetyczny ciągnie w stronę rynny
+    if (vortexActive()){
+      const dx = vortex.x-b.x, dy = vortex.y-b.y;
+      const d = Math.hypot(dx,dy);
+      if (d < vortex.R && d > 5){
+        const f = vortex.F * (1 - d/vortex.R);
+        b.vx += dx/d * f * dtb;
+        b.vy += dy/d * f * dtb;
+      }
+    }
+
+    b.x += b.vx*dtb;
+    b.y += b.vy*dtb;
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp > MAXV){ b.vx *= MAXV/sp; b.vy *= MAXV/sp; }
+
+    segs.forEach(s => collideSeg(b, s));
+    if (effects.shield > 0){
+      const hit = collideCapsule(b, 150, 690, 294, 690, 6, 1.1);
+      if (hit){ spawnSparks(b.x, b.y+10, "#28F2E4", 8); beep(240, .1, "sine", .06, 200); }
+    }
+    bumpers.forEach(p => collideCircle(b, p, 300, p.score));
+    posts.forEach(p => collideCircle(b, p, 0, 0));
+    flippers.forEach(f => collideFlipper(b, f));
+    if (rotorActive()) collideRotor(b);
+
+    // drop targety
+    targets.forEach(tg => {
+      if (tg.dead) return;
+      const hit = collideCapsule(b, tg.x - tg.len/2, tg.y, tg.x + tg.len/2, tg.y, tg.r, 0.7);
+      if (hit){
+        tg.dead = true;
+        registerHit(tg.x, tg.y, 250);
+        spawnSparks(tg.x, tg.y, "#FFC93C", 10);
+        shake = 3;
+        beep(1200, .1, "square", .05, -500);
+      }
+    });
+
+    // lasery odbijają kulkę
+    for (let i = 0; i < laserCount(); i++){
+      const lx = laserX(i), ly = LASERS[i].y;
+      const hit = collideCapsule(b, lx-LASER_HALF, ly, lx+LASER_HALF, ly, LASER_R, 0.6);
+      if (hit){
+        b.vx += hit.nx*230; b.vy += hit.ny*230;
+        shake = 4;
+        buzz(15);
+        spawnSparks(b.x, b.y, "#FF2E2E", 8);
+        beep(60, .12, "sawtooth", .07, 900);
+      }
+    }
+
+    // rollovery B-Z-Z-Z (sensory, nie odbijają)
+    letters.forEach((L,i) => {
+      if (L.lit) return;
+      if (Math.hypot(b.x-L.x, b.y-L.y) < 13 + b.r){
+        L.lit = true;
+        addScore(50);
+        popup(L.x, L.y, L.ch + "!");
+        spawnSparks(L.x, L.y, "#28F2E4", 6);
+        beep(600 + i*140, .1, "square", .05);
+        if (letters.every(l => l.lit)){
+          addScore(1000);
+          say("B-Z-Z-Z!  +" + 1000*level*(effects.fever>0?2:1) + "  BONUS!", 2.4);
+          melody([784,988,1175,1568], 0.08, 0.14, "square", 0.055);
+          spawnPickup(222, 300);
+          flash = Math.max(flash, 0.3);
+          resetLetters();
+        }
+      }
+    });
+
+    // łapanie bonusów
+    for (let i = pickups.length-1; i >= 0; i--){
+      const p = pickups[i];
+      if (Math.hypot(b.x-p.x, b.y-p.y) < 13 + b.r){
+        pickups.splice(i,1);
+        applyPickup(p, b);
+      }
+    }
+
+    // wejście do tunelu
+    if (portalActive() && portal.cool <= 0){
+      const d = Math.hypot(b.x-portal.in.x, b.y-portal.in.y);
+      if (d < portal.in.r + b.r){
+        b.warp = 0.45; portal.cool = 1.6;
+        addScore(500);
+        say("TUNEL! +" + 500*level*(effects.fever>0?2:1), 1.4);
+        spawnSparks(portal.in.x, portal.in.y, "#28F2E4", 12, 300);
+        beep(300, .4, "sine", .07, 900);
+      }
+    }
+
+    // anty-zakleszczenie: kulka nieruchoma poza wyrzutnią dostaje kuksańca
+    if (!inLane(b) && Math.hypot(b.vx, b.vy) < 12){
+      b.still += dt;
+      if (b.still > 3){
+        b.vy -= 260;
+        b.vx += (b.x < 222 ? 1 : -1) * (80 + Math.random()*80);
+        b.still = 0;
+        shake = 5;
+        beep(70, .12, "triangle", .06);
+      }
+    } else {
+      b.still = 0;
     }
   }
 
-  ball.x += ball.vx*dt;
-  ball.y += ball.vy*dt;
-  const sp = Math.hypot(ball.vx, ball.vy);
-  if (sp > MAXV){ ball.vx *= MAXV/sp; ball.vy *= MAXV/sp; }
+  // spadek do rynny
+  const before = ballsList.length;
+  ballsList = ballsList.filter(b => b.y <= H + 40);
+  if (ballsList.length < before && ballsList.length > 0)
+    say(ballsList.length === 1 ? "OSTATNIA KULKA!" : "", 1.2);
+  if (ballsList.length === 0) loseLife();
 
-  segs.forEach(s => collideSeg(ball, s));
-  bumpers.forEach(p => collideCircle(ball, p, 300, p.score));
-  posts.forEach(p => collideCircle(ball, p, 0, 0));
-  flippers.forEach(f => collideFlipper(ball, f));
+  // wszystkie targety zbite -> nowy poziom
+  if (targets.length && targets.every(tg => tg.dead)) levelUp();
 
-  // drop targety
-  let alive = 0;
-  targets.forEach(tg => {
-    if (tg.dead) return;
-    const hit = collideCapsule(ball, tg.x - tg.len/2, tg.y, tg.x + tg.len/2, tg.y, tg.r, 0.7);
-    if (hit){
-      tg.dead = true;
-      addScore(250);
-      shake = 3;
-      beep(1200, .1, "square", .05, -500);
-    } else alive++;
-  });
-  if (alive === 0 && targets.length) levelUp();
-
-  // lasery odbijają kulkę
-  for (let i = 0; i < laserCount(); i++){
-    const lx = laserX(i), ly = LASERS[i].y;
-    const hit = collideCapsule(ball, lx-LASER_HALF, ly, lx+LASER_HALF, ly, LASER_R, 0.6);
-    if (hit){
-      ball.vx += hit.nx*230; ball.vy += hit.ny*230;
-      shake = 4;
-      beep(60, .12, "sawtooth", .07, 900);
-    }
+  // aktualizacja popupów
+  for (let i = popups.length-1; i >= 0; i--){
+    popups[i].t += dt;
+    if (popups[i].t > 0.9) popups.splice(i,1);
   }
-
-  // wejście do tunelu
-  if (portalActive() && portal.cool <= 0){
-    const d = Math.hypot(ball.x-portal.in.x, ball.y-portal.in.y);
-    if (d < portal.in.r + ball.r){
-      portal.warp = 0.45; portal.cool = 1.6;
-      addScore(500);
-      say("TUNEL! +" + 500*level, 1.4);
-      beep(300, .4, "sine", .07, 900);
-    }
-  }
-
-  // anty-zakleszczenie: kulka nieruchoma poza wyrzutnią dostaje kuksańca
-  if (!inLane() && Math.hypot(ball.vx, ball.vy) < 12){
-    ball.still += dt;
-    if (ball.still > 3){
-      ball.vy -= 260;
-      ball.vx += (ball.x < 222 ? 1 : -1) * (80 + Math.random()*80);
-      ball.still = 0;
-      shake = 5;
-      beep(70, .12, "triangle", .06);
-    }
-  } else {
-    ball.still = 0;
-  }
-
-  if (ball.y > H + 40) drain();
 }
 
 /* ---------- rysowanie ---------- */
@@ -489,6 +731,30 @@ function text(str, x, y, size, color, align, glow){
   ctx.fillText(str, x, y);
   ctx.shadowBlur = 0;
 }
+function drawBee(x, y, r, wings){
+  if (wings){
+    ctx.globalAlpha = 0.35 + 0.3*Math.abs(Math.sin(T*26));
+    ctx.fillStyle = "#CFEBFF";
+    [[-r*0.7,-r*1.1],[r*0.7,-r*1.1]].forEach(([ox,oy]) => {
+      ctx.beginPath();
+      ctx.ellipse(x+ox, y+oy, r*0.62, r*0.34, ox<0?-0.6:0.6, 0, 7);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+  const g = ctx.createRadialGradient(x-r*0.3, y-r*0.3, 1, x, y, r);
+  g.addColorStop(0,"#FFE985"); g.addColorStop(1,"#F5A623");
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 7);
+  ctx.fillStyle = g;
+  ctx.shadowColor = "#FFC93C"; ctx.shadowBlur = 12;
+  ctx.fill(); ctx.shadowBlur = 0;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, r-0.5, 0, 7); ctx.clip();
+  ctx.fillStyle = "rgba(43,30,10,.85)";
+  ctx.fillRect(x - r*0.66, y-r, r*0.33, r*2);
+  ctx.fillRect(x + r*0.05, y-r, r*0.33, r*2);
+  ctx.restore();
+}
 function draw(){
   ctx.setTransform(DPR,0,0,DPR,0,0);
   if (shake > 0.2){
@@ -497,6 +763,14 @@ function draw(){
   }
   ctx.fillStyle = "#0B0817";
   ctx.fillRect(-8,-8,W+16,H+16);
+
+  // gwiazdy
+  stars.forEach(st => {
+    ctx.globalAlpha = 0.25 + 0.35*(0.5 + 0.5*Math.sin(T*1.7 + st.ph));
+    ctx.fillStyle = "#B9AEE8";
+    ctx.fillRect(st.x, st.y, st.s, st.s);
+  });
+  ctx.globalAlpha = 1;
 
   // delikatna poświata planszy
   const bg = ctx.createRadialGradient(240,300,40, 240,300,420);
@@ -519,6 +793,18 @@ function draw(){
   ctx.setLineDash([5,5]);
   ctx.beginPath(); ctx.moveTo(424,300); ctx.lineTo(458,264); ctx.stroke();
   ctx.setLineDash([]);
+
+  // rollovery B-Z-Z-Z
+  letters.forEach(L => {
+    neonStroke(L.lit ? "#FFC93C" : "#4A3F6E", 2, L.lit ? 12 : 0);
+    ctx.beginPath(); ctx.arc(L.x, L.y, 13, 0, 7);
+    if (L.lit){
+      ctx.fillStyle = "rgba(255,201,60,.25)";
+      ctx.fill();
+    }
+    ctx.stroke();
+    text(L.ch, L.x, L.y+1, 13, L.lit ? "#FFC93C" : "#6B6485", "center", L.lit ? 8 : 0);
+  });
 
   // slingshoty
   [[130,528,130,585,172,598],[314,528,314,585,272,598]].forEach((p,i) => {
@@ -547,6 +833,24 @@ function draw(){
     ctx.shadowBlur = 0;
     text(String(p.score), p.x, p.y, 11, f>0 ? "#0B0817" : p.c, "center", 0);
   });
+
+  // wiatrak
+  if (rotorActive()){
+    const ang = rotorAng();
+    const dx = Math.cos(ang)*rotor.len, dy = Math.sin(ang)*rotor.len;
+    neonStroke("#FF6B35", rotor.r*2, 12);
+    ctx.beginPath();
+    ctx.moveTo(rotor.x-dx, rotor.y-dy); ctx.lineTo(rotor.x+dx, rotor.y+dy);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    [[rotor.x-dx,rotor.y-dy],[rotor.x+dx,rotor.y+dy]].forEach(([ex,ey]) => {
+      ctx.beginPath(); ctx.arc(ex,ey,4,0,7);
+      ctx.fillStyle = "#FFD7B0"; ctx.fill();
+    });
+    ctx.beginPath(); ctx.arc(rotor.x, rotor.y, 6, 0, 7);
+    ctx.fillStyle = "#FF6B35"; ctx.shadowColor = "#FF6B35"; ctx.shadowBlur = 10;
+    ctx.fill(); ctx.shadowBlur = 0;
+  }
 
   // drop targety
   targets.forEach(tg => {
@@ -578,7 +882,7 @@ function draw(){
       ctx.fillStyle = g; ctx.fill();
       ctx.globalAlpha = 1;
     });
-    if (portal.warp > 0){
+    if (ballsList.some(b => b.warp > 0)){
       neonStroke("#28F2E4", 2, 14);
       ctx.setLineDash([4,9]);
       ctx.lineDashOffset = -T * 160;
@@ -618,6 +922,34 @@ function draw(){
     });
   }
 
+  // bonusy do złapania (bujające się kapsułki)
+  pickups.forEach(p => {
+    const bob = Math.sin(T*3 + p.x) * 4;
+    const dying = p.life - p.t < 2;
+    if (dying && Math.floor(p.t*6) % 2 === 0) return;   // miga przed zniknięciem
+    const y = p.y + bob;
+    neonStroke(p.type.c, 2.5, 12);
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++){
+      const a = Math.PI/6 + i*Math.PI/3 + T*0.8;
+      const px = p.x + Math.cos(a)*14, py = y + Math.sin(a)*14;
+      i === 0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(11,8,23,.75)";
+    ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+    text(p.type.k === "1UP" ? "1UP" : p.type.k[0], p.x, y+1, 11, p.type.c, "center", 6);
+  });
+
+  // tarcza nad rynną
+  if (effects.shield > 0){
+    ctx.globalAlpha = effects.shield < 2 ? (Math.floor(T*6)%2 ? 0.3 : 0.9) : 0.9;
+    neonStroke("#28F2E4", 5, 16 + 5*Math.sin(T*7));
+    ctx.beginPath(); ctx.moveTo(150,690); ctx.lineTo(294,690); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
   // słupki
   posts.forEach(p => {
     ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7);
@@ -652,72 +984,109 @@ function draw(){
     ctx.shadowBlur = 0;
   }
 
-  // kulka-pszczoła ze smugą
-  if (state === "play" && portal.warp <= 0){
-    ball.trail.push({x:ball.x,y:ball.y});
-    if (ball.trail.length > 9) ball.trail.shift();
-    ball.trail.forEach((p,i) => {
-      ctx.beginPath();
-      ctx.arc(p.x,p.y, ball.r*(i/ball.trail.length)*.8, 0, 7);
-      ctx.fillStyle = "rgba(255,201,60," + (0.07*i) + ")";
-      ctx.fill();
+  // kulki-pszczoły ze smugą
+  if (state === "play"){
+    ballsList.forEach(b => {
+      if (b.warp > 0) return;
+      b.trail.push({x:b.x,y:b.y});
+      if (b.trail.length > 9) b.trail.shift();
+      b.trail.forEach((p,i) => {
+        ctx.beginPath();
+        ctx.arc(p.x,p.y, b.r*(i/b.trail.length)*.8, 0, 7);
+        ctx.fillStyle = "rgba(255,201,60," + (0.07*i) + ")";
+        ctx.fill();
+      });
+      drawBee(b.x, b.y, b.r, false);
     });
-    const bgrad = ctx.createRadialGradient(ball.x-3,ball.y-3,1, ball.x,ball.y,ball.r);
-    bgrad.addColorStop(0,"#FFE985"); bgrad.addColorStop(1,"#F5A623");
-    ctx.beginPath(); ctx.arc(ball.x,ball.y,ball.r,0,7);
-    ctx.fillStyle = bgrad;
-    ctx.shadowColor = "#FFC93C"; ctx.shadowBlur = 12;
-    ctx.fill(); ctx.shadowBlur = 0;
-    // paski pszczoły
-    ctx.save();
-    ctx.beginPath(); ctx.arc(ball.x,ball.y,ball.r-0.5,0,7); ctx.clip();
-    ctx.fillStyle = "rgba(43,30,10,.85)";
-    ctx.fillRect(ball.x-6, ball.y-ball.r, 3, ball.r*2);
-    ctx.fillRect(ball.x+0, ball.y-ball.r, 3, ball.r*2);
-    ctx.restore();
   }
+
+  // iskry
+  sparks.forEach(s => {
+    ctx.globalAlpha = Math.max(0, s.life/0.55);
+    ctx.fillStyle = s.c;
+    ctx.fillRect(s.x-1.5, s.y-1.5, 3, 3);
+  });
+  ctx.globalAlpha = 1;
+
+  // wyskakujące punkty
+  popups.forEach(p => {
+    ctx.globalAlpha = Math.max(0, 1 - p.t/0.9);
+    text(p.txt, p.x, p.y - p.t*46, 13, "#EDE9FF", "center", 6);
+  });
+  ctx.globalAlpha = 1;
 
   // HUD w martwych rogach nad łukiem
   text("SCORE", 26, 30, 12, "#28F2E4", "left", 4);
   text(String(score).padStart(6,"0"), 26, 50, 18, "#EDE9FF", "left", 6);
-  text("LVL " + level + "  ×" + level, 26, 70, 12, "#FFC93C", "left", 4);
+  text("LVL " + level + "  ×" + level + (effects.fever>0 ? "×2" : ""), 26, 70, 12, "#FFC93C", "left", 4);
   text("HI " + String(Math.max(hi,score)).padStart(6,"0"), 454, 30, 12, "#FF3EA5", "right", 4);
-  text("●".repeat(Math.max(0,balls)), 454, 52, 14, "#FFC93C", "right", 6);
+  text("●".repeat(Math.min(8, Math.max(0,lives))), 454, 52, 14, "#FFC93C", "right", 6);
   text(music.on ? "♪ ON" : "♪ OFF", 454, 72, 10, music.on ? "#28F2E4" : "#6B6485", "right", 2);
+
+  // aktywne efekty
+  let ey = 92;
+  const fx = [
+    [effects.fever,  "FEVER ×2", "#FFC93C"],
+    [effects.shield, "TARCZA",   "#28F2E4"],
+    [effects.big,    "WIELKA",   "#FF3EA5"],
+    [effects.slow,   "SLOW-MO",  "#7B5CFF"],
+  ];
+  fx.forEach(([tv, label, c]) => {
+    if (tv <= 0) return;
+    text(label + " " + Math.ceil(tv) + "s", 26, ey, 10, c, "left", 3);
+    ey += 16;
+  });
+  if (ballsList.length > 1)
+    text("MULTIBALL ×" + ballsList.length, 26, ey, 10, "#FF6B35", "left", 3);
+
+  // slow-mo: niebieskie zabarwienie
+  if (effects.slow > 0){
+    ctx.fillStyle = "rgba(123,92,255,.07)";
+    ctx.fillRect(0,0,W,H);
+  }
 
   // komunikaty na planszy
   for (let i = msgs.length-1; i >= 0; i--){
     const m = msgs[i];
     m.t += 1/60;
     if (m.t > m.dur){ msgs.splice(i,1); continue; }
+    if (!m.text) continue;
     const a = Math.min(1, (m.dur - m.t) / 0.4, m.t / 0.15);
     ctx.globalAlpha = a;
     text(m.text, 240, 400 + i*26, 16, "#FFC93C", "center", 12);
     ctx.globalAlpha = 1;
   }
 
+  // rozbłysk (level up, frenzy)
+  if (flash > 0){
+    ctx.fillStyle = "rgba(255,255,255," + (flash*0.5) + ")";
+    ctx.fillRect(0,0,W,H);
+  }
+
   // nakładki
   blink += 1/60;
   const show = Math.floor(blink*2) % 2 === 0;
   if (state === "title"){
-    ctx.fillStyle = "rgba(6,4,16,.78)"; ctx.fillRect(0,0,W,H);
-    text("BZZZ", 240, 245, 62, "#FFC93C", "center", 24);
-    text("BALL", 240, 312, 62, "#FF3EA5", "center", 24);
-    text("RETRO PINBALL", 240, 368, 16, "#EDE9FF", "center", 6);
-    text("← →  FLIPPERY", 240, 442, 14, "#B9AEE8", "center", 0);
-    text("SPACJA — WYRZUTNIA (PRZYTRZYMAJ)", 240, 468, 14, "#B9AEE8", "center", 0);
-    text("ZBIJ WSZYSTKIE TARGETY = NOWY POZIOM", 240, 494, 12, "#B9AEE8", "center", 0);
-    text("TUNELE · LASERY · WIR MAGNETYCZNY", 240, 518, 12, "#B9AEE8", "center", 0);
-    if (show) text("WCIŚNIJ SPACJĘ / DOTKNIJ", 240, 574, 16, "#FFC93C", "center", 10);
+    ctx.fillStyle = "rgba(6,4,16,.8)"; ctx.fillRect(0,0,W,H);
+    drawBee(240, 165 + Math.sin(T*2.2)*8, 26, true);
+    text("BZZZ", 240, 255, 62, "#FFC93C", "center", 24);
+    text("BALL", 240, 322, 62, "#FF3EA5", "center", 24);
+    text("RETRO PINBALL", 240, 376, 15, "#EDE9FF", "center", 6);
+    text("← →  FLIPPERY   ·   SPACJA  WYRZUTNIA", 240, 434, 13, "#B9AEE8", "center", 0);
+    text("ZBIJ TARGETY = POZIOM   ·   ZAPAL B-Z-Z-Z", 240, 458, 12, "#B9AEE8", "center", 0);
+    text("ŁAP BONUSY: 1UP · MULTIBALL · TARCZA", 240, 482, 12, "#B9AEE8", "center", 0);
+    text("TUNELE · LASERY · WIATRAK · WIR", 240, 506, 12, "#B9AEE8", "center", 0);
+    if (hi > 0) text("REKORD  " + hi, 240, 542, 13, "#FF3EA5", "center", 4);
+    if (show) text("INSERT COIN — SPACJA / DOTYK", 240, 588, 16, "#FFC93C", "center", 10);
   } else if (state === "over"){
-    ctx.fillStyle = "rgba(6,4,16,.78)"; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = "rgba(6,4,16,.8)"; ctx.fillRect(0,0,W,H);
     text("GAME OVER", 240, 260, 44, "#FF3EA5", "center", 20);
     text("WYNIK  " + score, 240, 330, 22, "#EDE9FF", "center", 8);
     text("POZIOM  " + level, 240, 368, 16, "#B9AEE8", "center", 4);
     if (newHi && show) text("★ NOWY REKORD ★", 240, 408, 18, "#FFC93C", "center", 12);
     else text("REKORD  " + hi, 240, 408, 16, "#B9AEE8", "center", 4);
-    if (show) text("WCIŚNIJ SPACJĘ / DOTKNIJ", 240, 480, 16, "#FFC93C", "center", 10);
-  } else if (inLane() && Math.abs(ball.vy) < 40 && ball.y > 560 && show){
+    if (show) text("INSERT COIN — SPACJA / DOTYK", 240, 480, 16, "#FFC93C", "center", 10);
+  } else if (ballOnPlunger() && show){
     text("PRZYTRZYMAJ SPACJĘ", 240, 600, 13, "#FFC93C", "center", 8);
   }
 }
@@ -762,9 +1131,6 @@ window.addEventListener("keyup", e => {
 
 // dotyk: strefa "♪" wycisza; kulka na wyrzutni — dotyk ładuje; inaczej połówki = flippery
 const touchMap = {};
-function ballOnPlunger(){
-  return state === "play" && inLane() && ball.y > 560 && Math.abs(ball.vy) < 60;
-}
 cv.addEventListener("touchstart", e => {
   e.preventDefault(); audioOn();
   const rect = cv.getBoundingClientRect();
