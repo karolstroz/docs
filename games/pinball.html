@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>NEON TILT — Retro Pinball</title>
+<title>BZZZball — Retro Pinball</title>
 <style>
   :root{
     --bg-deep:#060410;
@@ -27,7 +27,7 @@
   h1{
     font-size:clamp(18px,3.4vw,30px);
     font-weight:700;letter-spacing:.45em;text-transform:uppercase;
-    text-shadow:0 0 6px var(--cyan),0 0 18px rgba(40,242,228,.55),2px 2px 0 var(--magenta);
+    text-shadow:0 0 6px var(--amber),0 0 18px rgba(255,201,60,.55),2px 2px 0 var(--magenta);
     text-indent:.45em; /* wyrównuje letter-spacing ostatniej litery */
   }
   .cabinet{
@@ -63,32 +63,36 @@
 </style>
 </head>
 <body>
-<h1>Neon Tilt</h1>
-<div class="cabinet"><canvas id="game" aria-label="Pinball — gra zręcznościowa"></canvas></div>
+<h1>BZZZball</h1>
+<div class="cabinet"><canvas id="game" aria-label="BZZZball — pinball, gra zręcznościowa"></canvas></div>
 <p class="hint">
-  <b>←</b> / <b>→</b> flippery &nbsp;·&nbsp; <b>SPACJA</b> (przytrzymaj i puść) wyrzutnia<br>
+  <b>←</b> / <b>→</b> flippery &nbsp;·&nbsp; <b>SPACJA</b> (przytrzymaj i puść) wyrzutnia &nbsp;·&nbsp; <b>M</b> muzyka<br>
   dotyk: lewa / prawa połowa ekranu, start kulki — przytrzymaj i puść
 </p>
 <script>
 (() => {
 "use strict";
 const W = 480, H = 720;
-const G = 1500;              // grawitacja px/s^2
+const G = 1500;              // grawitacja bazowa px/s^2
 const MAXV = 1650;
+const MAXLEVEL = 9;
 const cv = document.getElementById("game");
 const ctx = cv.getContext("2d");
 const DPR = Math.min(2, window.devicePixelRatio || 1);
 cv.width = W * DPR; cv.height = H * DPR;
 
 /* ---------- dźwięk (WebAudio, generowany) ---------- */
-let AC = null;
+let AC = null, noiseBuf = null;
 function audioOn(){
   if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
   if (AC && AC.state === "suspended") AC.resume();
 }
 function beep(freq, dur, type, vol, slide){
   if (!AC) return;
-  const t = AC.currentTime;
+  note(freq, AC.currentTime, dur, type, vol, slide);
+}
+function note(freq, t, dur, type, vol, slide){
+  if (!AC) return;
   const o = AC.createOscillator(), g = AC.createGain();
   o.type = type || "square";
   o.frequency.setValueAtTime(freq, t);
@@ -98,18 +102,62 @@ function beep(freq, dur, type, vol, slide){
   o.connect(g).connect(AC.destination);
   o.start(t); o.stop(t + dur);
 }
+function noiseHit(t, vol){
+  if (!AC) return;
+  if (!noiseBuf){
+    noiseBuf = AC.createBuffer(1, AC.sampleRate * 0.05, AC.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random()*2 - 1;
+  }
+  const s = AC.createBufferSource(), g = AC.createGain(), f = AC.createBiquadFilter();
+  s.buffer = noiseBuf;
+  f.type = "highpass"; f.frequency.value = 5000;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+  s.connect(f).connect(g).connect(AC.destination);
+  s.start(t);
+}
+
+/* ---------- muzyka: syntezatorowy loop, tempo rośnie z poziomem ---------- */
+const music = { on: true, next: 0, step: 0 };
+const BASS = [45,45,48,45,43,43,41,43];      // MIDI, A-moll
+const ARP  = [69,72,76,79,81,79,76,72];
+const mtof = m => 440 * Math.pow(2, (m-69)/12);
+function musicTick(){
+  if (!AC || !music.on || state !== "play"){ if (AC) music.next = AC.currentTime + 0.1; return; }
+  const bpm = 104 + level*8;
+  const spb = 30/bpm;                        // ósemka
+  if (music.next < AC.currentTime) music.next = AC.currentTime + 0.05;
+  while (music.next < AC.currentTime + 0.3){
+    const t = music.next, s = music.step;
+    note(mtof(BASS[s%8]), t, spb*0.85, "sawtooth", 0.035);
+    note(mtof(ARP[s%8]), t, spb*0.5, "square", 0.015);
+    if (s%2 === 0) noiseHit(t, 0.012);
+    if (s%8 === 7) noiseHit(t, 0.022);
+    music.next += spb; music.step++;
+  }
+}
+setInterval(musicTick, 80);
+function jingle(){
+  if (!AC) return;
+  const t = AC.currentTime;
+  [523,659,784,1047].forEach((f,i) => note(f, t + i*0.09, 0.14, "square", 0.05));
+}
 
 /* ---------- stan gry ---------- */
 let state = "title";         // title | play | over
-let score = 0, balls = 3;
-let hi = +(localStorage.getItem("neon-tilt-hi") || 0);
+let score = 0, balls = 3, level = 1;
+let hi = +(localStorage.getItem("bzzzball-hi") || 0);
 let newHi = false;
-let shake = 0, blink = 0;
+let shake = 0, blink = 0, T = 0;
 const ball = { x: 443, y: 640, vx: 0, vy: 0, r: 9, trail: [], still: 0 };
 const plunger = { power: 0, charging: false };
+const msgs = [];             // komunikaty na planszy
 
-function addScore(n){ score += n; }
+function addScore(n){ score += n * level; }
 function inLane(){ return ball.x > 424; }
+function say(text, dur){ msgs.push({ text, t: 0, dur: dur || 1.6 }); }
+function gravScale(){ return 1 + Math.min(0.4, 0.06*(level-1)); }
 
 /* ---------- geometria stołu ---------- */
 const segs = [];
@@ -149,6 +197,38 @@ const bumpers = [
   {x:222,y:155,r:24,score:150,flash:0,c:"#FFC93C"},
 ];
 const posts = [ {x:424,y:300,r:5} ];
+
+/* ---------- drop targety: zbij wszystkie = następny poziom ---------- */
+let targets = [];
+function spawnTargets(){
+  const count = Math.min(3 + Math.floor((level-1)/2), 5);
+  const spacing = 46, len = 26, y = 335;
+  const x0 = 222 - (count-1)*spacing/2;
+  targets = [];
+  for (let i = 0; i < count; i++)
+    targets.push({ x: x0 + i*spacing, y, len, r: 6, dead: false, flash: 0 });
+}
+spawnTargets();
+
+/* ---------- futurystyczny tunel (od poziomu 2) ---------- */
+const portal = {
+  in: {x:64, y:440, r:13}, out: {x:352, y:112, r:13},
+  cool: 0, warp: 0,
+};
+function portalActive(){ return level >= 2; }
+
+/* ---------- lasery (poziom 3+: jeden, 5+: dwa) ---------- */
+const LASERS = [ {y:420, phase:0}, {y:380, phase:Math.PI} ];
+function laserCount(){ return level >= 5 ? 2 : (level >= 3 ? 1 : 0); }
+function laserX(i){
+  const w = 0.9 + 0.12*level;
+  return 222 + Math.sin(T*w + LASERS[i].phase) * 112;
+}
+const LASER_HALF = 40, LASER_R = 5;
+
+/* ---------- wir magnetyczny (poziom 4+) ---------- */
+const vortex = { x:222, y:495, R:110, F:280 };
+function vortexActive(){ return level >= 4; }
 
 /* ---------- flippery ---------- */
 function mkFlipper(px,py,dir){
@@ -212,6 +292,21 @@ function collideCircle(b,p,kick,scoreVal){
     beep(200+Math.random()*220, .09, "square", .06, -80);
   }
 }
+// statyczna kapsuła (drop targety, lasery); zwraca normalną albo null
+function collideCapsule(b, x1,y1,x2,y2, rad, rest){
+  const dx=x2-x1, dy=y2-y1, L2=dx*dx+dy*dy || 1;
+  let t = ((b.x-x1)*dx + (b.y-y1)*dy) / L2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = x1+t*dx, cy = y1+t*dy;
+  let nx = b.x-cx, ny = b.y-cy;
+  const d = Math.hypot(nx,ny), rr = b.r+rad;
+  if (d >= rr || d === 0) return null;
+  nx/=d; ny/=d;
+  b.x = cx + nx*rr; b.y = cy + ny*rr;
+  const vn = b.vx*nx + b.vy*ny;
+  if (vn < 0){ b.vx -= (1+rest)*vn*nx; b.vy -= (1+rest)*vn*ny; }
+  return { nx, ny, vn };
+}
 function collideFlipper(b,f){
   const tip = flipTip(f);
   const dx = tip.x-f.px, dy = tip.y-f.py;
@@ -240,11 +335,14 @@ function collideFlipper(b,f){
 /* ---------- przebieg gry ---------- */
 function resetBall(){
   ball.x = 443; ball.y = 640; ball.vx = 0; ball.vy = 0;
-  ball.trail.length = 0;
+  ball.trail.length = 0; ball.still = 0;
   plunger.power = 0; plunger.charging = false;
+  portal.warp = 0; portal.cool = 0;
 }
 function newGame(){
-  score = 0; balls = 3; newHi = false;
+  score = 0; balls = 3; level = 1; newHi = false;
+  msgs.length = 0;
+  spawnTargets();
   state = "play"; resetBall();
 }
 function drain(){
@@ -252,10 +350,20 @@ function drain(){
   beep(200, .4, "triangle", .07, -150);
   if (balls <= 0){
     state = "over";
-    if (score > hi){ hi = score; newHi = true; localStorage.setItem("neon-tilt-hi", hi); }
+    if (score > hi){ hi = score; newHi = true; localStorage.setItem("bzzzball-hi", hi); }
   } else {
     resetBall();
   }
+}
+function levelUp(){
+  if (level < MAXLEVEL) level++;
+  jingle(); shake = 6;
+  say("POZIOM " + level + "  —  MNOŻNIK ×" + level, 2.2);
+  if (level === 2) say("TUNEL CZASOPRZESTRZENNY ONLINE", 2.6);
+  if (level === 3) say("UWAGA: LASER!", 2.6);
+  if (level === 4) say("WIR MAGNETYCZNY AKTYWNY", 2.6);
+  if (level === 5) say("DRUGI LASER!", 2.6);
+  spawnTargets();
 }
 function releasePlunger(){
   if (!plunger.charging) return;
@@ -268,14 +376,41 @@ function releasePlunger(){
 }
 
 function step(dt){
+  T += dt;
   flippers.forEach(f => updFlipper(f, dt));
   segs.forEach(s => { if (s.flash>0) s.flash = Math.max(0, s.flash - dt*3.5); });
   bumpers.forEach(p => { if (p.flash>0) p.flash = Math.max(0, p.flash - dt*3.5); });
+  targets.forEach(tg => { if (tg.flash>0) tg.flash = Math.max(0, tg.flash - dt*3.5); });
   if (state !== "play") return;
 
   if (plunger.charging && inLane()) plunger.power = Math.min(1, plunger.power + dt*1.15);
 
-  ball.vy += G*dt;
+  // podróż tunelem: kulka znika, po chwili wypada z drugiego końca
+  if (portal.warp > 0){
+    portal.warp -= dt;
+    if (portal.warp <= 0){
+      ball.x = portal.out.x; ball.y = portal.out.y;
+      ball.vx = -70; ball.vy = 260;
+      ball.trail.length = 0;
+      beep(880, .18, "sine", .06, -400);
+    }
+    return;
+  }
+  if (portal.cool > 0) portal.cool -= dt;
+
+  ball.vy += G * gravScale() * dt;
+
+  // wir magnetyczny ciągnie w stronę rynny
+  if (vortexActive()){
+    const dx = vortex.x-ball.x, dy = vortex.y-ball.y;
+    const d = Math.hypot(dx,dy);
+    if (d < vortex.R && d > 5){
+      const f = vortex.F * (1 - d/vortex.R);
+      ball.vx += dx/d * f * dt;
+      ball.vy += dy/d * f * dt;
+    }
+  }
+
   ball.x += ball.vx*dt;
   ball.y += ball.vy*dt;
   const sp = Math.hypot(ball.vx, ball.vy);
@@ -285,6 +420,42 @@ function step(dt){
   bumpers.forEach(p => collideCircle(ball, p, 300, p.score));
   posts.forEach(p => collideCircle(ball, p, 0, 0));
   flippers.forEach(f => collideFlipper(ball, f));
+
+  // drop targety
+  let alive = 0;
+  targets.forEach(tg => {
+    if (tg.dead) return;
+    const hit = collideCapsule(ball, tg.x - tg.len/2, tg.y, tg.x + tg.len/2, tg.y, tg.r, 0.7);
+    if (hit){
+      tg.dead = true;
+      addScore(250);
+      shake = 3;
+      beep(1200, .1, "square", .05, -500);
+    } else alive++;
+  });
+  if (alive === 0 && targets.length) levelUp();
+
+  // lasery odbijają kulkę
+  for (let i = 0; i < laserCount(); i++){
+    const lx = laserX(i), ly = LASERS[i].y;
+    const hit = collideCapsule(ball, lx-LASER_HALF, ly, lx+LASER_HALF, ly, LASER_R, 0.6);
+    if (hit){
+      ball.vx += hit.nx*230; ball.vy += hit.ny*230;
+      shake = 4;
+      beep(60, .12, "sawtooth", .07, 900);
+    }
+  }
+
+  // wejście do tunelu
+  if (portalActive() && portal.cool <= 0){
+    const d = Math.hypot(ball.x-portal.in.x, ball.y-portal.in.y);
+    if (d < portal.in.r + ball.r){
+      portal.warp = 0.45; portal.cool = 1.6;
+      addScore(500);
+      say("TUNEL! +" + 500*level, 1.4);
+      beep(300, .4, "sine", .07, 900);
+    }
+  }
 
   // anty-zakleszczenie: kulka nieruchoma poza wyrzutnią dostaje kuksańca
   if (!inLane() && Math.hypot(ball.vx, ball.vy) < 12){
@@ -377,6 +548,76 @@ function draw(){
     text(String(p.score), p.x, p.y, 11, f>0 ? "#0B0817" : p.c, "center", 0);
   });
 
+  // drop targety
+  targets.forEach(tg => {
+    if (tg.dead) return;
+    neonStroke("#FFC93C", tg.r*2, 10);
+    ctx.beginPath();
+    ctx.moveTo(tg.x - tg.len/2, tg.y); ctx.lineTo(tg.x + tg.len/2, tg.y);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(11,8,23,.5)"; ctx.lineWidth = tg.r*2 - 5;
+    ctx.beginPath();
+    ctx.moveTo(tg.x - tg.len/2, tg.y); ctx.lineTo(tg.x + tg.len/2, tg.y);
+    ctx.stroke();
+  });
+
+  // tunel: dwa wirujące pierścienie + wiązka podczas teleportu
+  if (portalActive()){
+    [[portal.in,"#28F2E4",1],[portal.out,"#FF3EA5",-1]].forEach(([p,c,dir]) => {
+      neonStroke(c, 3, 12);
+      ctx.setLineDash([7,6]);
+      ctx.lineDashOffset = dir * T * 26;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      const g = ctx.createRadialGradient(p.x,p.y,1, p.x,p.y,p.r);
+      g.addColorStop(0, c); g.addColorStop(1, "rgba(11,8,23,0)");
+      ctx.globalAlpha = 0.5 + 0.2*Math.sin(T*5);
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r-3,0,7);
+      ctx.fillStyle = g; ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+    if (portal.warp > 0){
+      neonStroke("#28F2E4", 2, 14);
+      ctx.setLineDash([4,9]);
+      ctx.lineDashOffset = -T * 160;
+      ctx.beginPath();
+      ctx.moveTo(portal.in.x, portal.in.y);
+      ctx.lineTo(portal.out.x, portal.out.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+    }
+  }
+
+  // wir magnetyczny
+  if (vortexActive()){
+    ctx.globalAlpha = 0.55;
+    for (let i = 0; i < 3; i++){
+      const r = 16 + i*13;
+      neonStroke("#7B5CFF", 2, 8);
+      ctx.beginPath();
+      ctx.arc(vortex.x, vortex.y, r, T*1.6 + i*2.1, T*1.6 + i*2.1 + 3.6);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // lasery
+  for (let i = 0; i < laserCount(); i++){
+    const lx = laserX(i), ly = LASERS[i].y;
+    neonStroke("#FF2E2E", 6, 16 + 6*Math.sin(T*9));
+    ctx.beginPath(); ctx.moveTo(lx-LASER_HALF, ly); ctx.lineTo(lx+LASER_HALF, ly); ctx.stroke();
+    neonStroke("#FFD7D7", 2, 0);
+    ctx.beginPath(); ctx.moveTo(lx-LASER_HALF, ly); ctx.lineTo(lx+LASER_HALF, ly); ctx.stroke();
+    [[lx-LASER_HALF,ly],[lx+LASER_HALF,ly]].forEach(([ex,ey]) => {
+      ctx.beginPath(); ctx.arc(ex,ey,4,0,7);
+      ctx.fillStyle = "#FF2E2E"; ctx.shadowColor = "#FF2E2E"; ctx.shadowBlur = 10;
+      ctx.fill(); ctx.shadowBlur = 0;
+    });
+  }
+
   // słupki
   posts.forEach(p => {
     ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7);
@@ -411,48 +652,71 @@ function draw(){
     ctx.shadowBlur = 0;
   }
 
-  // kulka ze smugą
-  if (state === "play"){
+  // kulka-pszczoła ze smugą
+  if (state === "play" && portal.warp <= 0){
     ball.trail.push({x:ball.x,y:ball.y});
     if (ball.trail.length > 9) ball.trail.shift();
     ball.trail.forEach((p,i) => {
       ctx.beginPath();
       ctx.arc(p.x,p.y, ball.r*(i/ball.trail.length)*.8, 0, 7);
-      ctx.fillStyle = "rgba(237,233,255," + (0.07*i) + ")";
+      ctx.fillStyle = "rgba(255,201,60," + (0.07*i) + ")";
       ctx.fill();
     });
-    ctx.beginPath(); ctx.arc(ball.x,ball.y,ball.r,0,7);
     const bgrad = ctx.createRadialGradient(ball.x-3,ball.y-3,1, ball.x,ball.y,ball.r);
-    bgrad.addColorStop(0,"#FFFFFF"); bgrad.addColorStop(1,"#B9AEE8");
+    bgrad.addColorStop(0,"#FFE985"); bgrad.addColorStop(1,"#F5A623");
+    ctx.beginPath(); ctx.arc(ball.x,ball.y,ball.r,0,7);
     ctx.fillStyle = bgrad;
-    ctx.shadowColor = "#FFFFFF"; ctx.shadowBlur = 12;
+    ctx.shadowColor = "#FFC93C"; ctx.shadowBlur = 12;
     ctx.fill(); ctx.shadowBlur = 0;
+    // paski pszczoły
+    ctx.save();
+    ctx.beginPath(); ctx.arc(ball.x,ball.y,ball.r-0.5,0,7); ctx.clip();
+    ctx.fillStyle = "rgba(43,30,10,.85)";
+    ctx.fillRect(ball.x-6, ball.y-ball.r, 3, ball.r*2);
+    ctx.fillRect(ball.x+0, ball.y-ball.r, 3, ball.r*2);
+    ctx.restore();
   }
 
   // HUD w martwych rogach nad łukiem
   text("SCORE", 26, 30, 12, "#28F2E4", "left", 4);
   text(String(score).padStart(6,"0"), 26, 50, 18, "#EDE9FF", "left", 6);
+  text("LVL " + level + "  ×" + level, 26, 70, 12, "#FFC93C", "left", 4);
   text("HI " + String(Math.max(hi,score)).padStart(6,"0"), 454, 30, 12, "#FF3EA5", "right", 4);
   text("●".repeat(Math.max(0,balls)), 454, 52, 14, "#FFC93C", "right", 6);
+  text(music.on ? "♪ ON" : "♪ OFF", 454, 72, 10, music.on ? "#28F2E4" : "#6B6485", "right", 2);
+
+  // komunikaty na planszy
+  for (let i = msgs.length-1; i >= 0; i--){
+    const m = msgs[i];
+    m.t += 1/60;
+    if (m.t > m.dur){ msgs.splice(i,1); continue; }
+    const a = Math.min(1, (m.dur - m.t) / 0.4, m.t / 0.15);
+    ctx.globalAlpha = a;
+    text(m.text, 240, 400 + i*26, 16, "#FFC93C", "center", 12);
+    ctx.globalAlpha = 1;
+  }
 
   // nakładki
   blink += 1/60;
   const show = Math.floor(blink*2) % 2 === 0;
   if (state === "title"){
     ctx.fillStyle = "rgba(6,4,16,.78)"; ctx.fillRect(0,0,W,H);
-    text("NEON", 240, 250, 58, "#28F2E4", "center", 22);
-    text("TILT", 240, 315, 58, "#FF3EA5", "center", 22);
-    text("RETRO PINBALL", 240, 370, 16, "#EDE9FF", "center", 6);
-    text("← →  FLIPPERY", 240, 460, 14, "#B9AEE8", "center", 0);
-    text("SPACJA — WYRZUTNIA (PRZYTRZYMAJ)", 240, 486, 14, "#B9AEE8", "center", 0);
-    if (show) text("WCIŚNIJ SPACJĘ / DOTKNIJ", 240, 560, 16, "#FFC93C", "center", 10);
+    text("BZZZ", 240, 245, 62, "#FFC93C", "center", 24);
+    text("BALL", 240, 312, 62, "#FF3EA5", "center", 24);
+    text("RETRO PINBALL", 240, 368, 16, "#EDE9FF", "center", 6);
+    text("← →  FLIPPERY", 240, 442, 14, "#B9AEE8", "center", 0);
+    text("SPACJA — WYRZUTNIA (PRZYTRZYMAJ)", 240, 468, 14, "#B9AEE8", "center", 0);
+    text("ZBIJ WSZYSTKIE TARGETY = NOWY POZIOM", 240, 494, 12, "#B9AEE8", "center", 0);
+    text("TUNELE · LASERY · WIR MAGNETYCZNY", 240, 518, 12, "#B9AEE8", "center", 0);
+    if (show) text("WCIŚNIJ SPACJĘ / DOTKNIJ", 240, 574, 16, "#FFC93C", "center", 10);
   } else if (state === "over"){
     ctx.fillStyle = "rgba(6,4,16,.78)"; ctx.fillRect(0,0,W,H);
-    text("GAME OVER", 240, 270, 44, "#FF3EA5", "center", 20);
-    text("WYNIK  " + score, 240, 340, 22, "#EDE9FF", "center", 8);
-    if (newHi && show) text("★ NOWY REKORD ★", 240, 385, 18, "#FFC93C", "center", 12);
-    else text("REKORD  " + hi, 240, 385, 16, "#B9AEE8", "center", 4);
-    if (show) text("WCIŚNIJ SPACJĘ / DOTKNIJ", 240, 470, 16, "#FFC93C", "center", 10);
+    text("GAME OVER", 240, 260, 44, "#FF3EA5", "center", 20);
+    text("WYNIK  " + score, 240, 330, 22, "#EDE9FF", "center", 8);
+    text("POZIOM  " + level, 240, 368, 16, "#B9AEE8", "center", 4);
+    if (newHi && show) text("★ NOWY REKORD ★", 240, 408, 18, "#FFC93C", "center", 12);
+    else text("REKORD  " + hi, 240, 408, 16, "#B9AEE8", "center", 4);
+    if (show) text("WCIŚNIJ SPACJĘ / DOTKNIJ", 240, 480, 16, "#FFC93C", "center", 10);
   } else if (inLane() && Math.abs(ball.vy) < 40 && ball.y > 560 && show){
     text("PRZYTRZYMAJ SPACJĘ", 240, 600, 13, "#FFC93C", "center", 8);
   }
@@ -471,7 +735,11 @@ function frame(now){
 requestAnimationFrame(frame);
 
 /* ---------- sterowanie ---------- */
-const L_KEYS = ["ArrowLeft","KeyA","KeyZ"], R_KEYS = ["ArrowRight","KeyD","Slash","KeyM"];
+const L_KEYS = ["ArrowLeft","KeyA","KeyZ"], R_KEYS = ["ArrowRight","KeyD","Slash"];
+function toggleMusic(){
+  music.on = !music.on;
+  say(music.on ? "MUZYKA ON" : "MUZYKA OFF", 1);
+}
 function startIfIdle(){
   if (state === "title" || state === "over"){ newGame(); return true; }
   return false;
@@ -480,6 +748,7 @@ window.addEventListener("keydown", e => {
   audioOn();
   if (["ArrowLeft","ArrowRight","ArrowDown","Space"].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
+  if (e.code === "KeyM"){ toggleMusic(); return; }
   if ((e.code === "Space" || e.code === "Enter") && startIfIdle()) return;
   if (L_KEYS.includes(e.code)){ flippers[0].on = true; beep(90,.05,"triangle",.05); }
   if (R_KEYS.includes(e.code)){ flippers[1].on = true; beep(90,.05,"triangle",.05); }
@@ -491,19 +760,23 @@ window.addEventListener("keyup", e => {
   if (e.code === "Space" || e.code === "ArrowDown") releasePlunger();
 });
 
-// dotyk: gdy kulka na wyrzutni — każdy dotyk ładuje; inaczej połówki = flippery
+// dotyk: strefa "♪" wycisza; kulka na wyrzutni — dotyk ładuje; inaczej połówki = flippery
 const touchMap = {};
 function ballOnPlunger(){
   return state === "play" && inLane() && ball.y > 560 && Math.abs(ball.vy) < 60;
 }
 cv.addEventListener("touchstart", e => {
   e.preventDefault(); audioOn();
-  if (startIfIdle()) return;
+  const rect = cv.getBoundingClientRect();
   for (const t of e.changedTouches){
+    const gx = (t.clientX - rect.left) / rect.width * W;
+    const gy = (t.clientY - rect.top) / rect.height * H;
+    if (gy < 85 && gx > 380){ toggleMusic(); continue; }
+    if (startIfIdle()) continue;
     if (ballOnPlunger()){
       touchMap[t.identifier] = "P"; plunger.charging = true;
     } else {
-      const half = t.clientX < window.innerWidth/2 ? 0 : 1;
+      const half = gx < W/2 ? 0 : 1;
       touchMap[t.identifier] = half === 0 ? "L" : "R";
       flippers[half].on = true;
       beep(90,.05,"triangle",.05);
