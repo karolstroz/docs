@@ -129,8 +129,8 @@ const BASS = [45,45,48,45,43,43,41,43];      // MIDI, A-moll
 const ARP  = [69,72,76,79,81,79,76,72];
 const mtof = m => 440 * Math.pow(2, (m-69)/12);
 function musicTick(){
-  if (!AC || !music.on || state !== "play"){ if (AC) music.next = AC.currentTime + 0.1; return; }
-  const bpm = 104 + level*8 + (effects.fever > 0 ? 24 : 0);
+  if (!AC || !music.on || (state !== "play" && state !== "video")){ if (AC) music.next = AC.currentTime + 0.1; return; }
+  const bpm = 104 + level*8 + (effects.fever > 0 ? 24 : 0) + (state === "video" ? 28 : 0);
   const spb = 30/bpm;                        // ósemka
   if (music.next < AC.currentTime) music.next = AC.currentTime + 0.05;
   while (music.next < AC.currentTime + 0.3){
@@ -273,6 +273,7 @@ const PICKUP_TYPES = [
   { k:"SLOW",   c:"#7B5CFF", w:15 },
   { k:"MULTI",  c:"#FF6B35", w:16 },
   { k:"1UP",    c:"#7CFF6B", w:10 },
+  { k:"TV",     c:"#9BE8FF", w:12 },
 ];
 const PICKUP_SLOTS = [ [100,340],[344,340],[70,250],[374,250],[222,300] ];
 let pickups = [], pickupTimer = 6;
@@ -319,6 +320,8 @@ function applyPickup(p, b){
     effects.fever = Math.max(effects.fever, 10);
     say("FEVER!  PUNKTY ×2  10s", 2);
     melody([523,659,784], 0.07, 0.12, "square", 0.05);
+  } else if (k === "TV"){
+    startVideoMode();
   }
   popup(p.x, p.y, k === "1UP" ? "1UP!" : k);
 }
@@ -347,6 +350,133 @@ function vortexActive(){ return level >= 4; }
 const rotor = { x:222, y:250, len:50, r:5 };
 function rotorActive(){ return level >= 5; }
 function rotorAng(){ return T * (2.0 + 0.15*level); }
+
+/* ---------- PAJĄK — hołd dla "The Power" z The Addams Family ---------- */
+const spider = { phase: "idle", timer: 20, y: -30, x: 0, hold: 0, mash: 0, ball: null };
+function spiderMash(){
+  if (spider.phase === "hold"){ spider.hold -= 0.22; spider.mash++; }
+}
+function spiderThrow(){
+  const b = spider.ball;
+  const a = -Math.PI/2 + (Math.random()-.5)*1.7;
+  const v = 650 + Math.random()*350;
+  b.held = false; b.vx = Math.cos(a)*v; b.vy = Math.sin(a)*v;
+  if (spider.mash >= 6){ addScore(300); popup(b.x, b.y-20, "UCIEKŁA! +" + 300*level*(effects.fever>0?2:1)); }
+  spawnSparks(b.x, b.y, "#B9AEE8", 10);
+  beep(300, .2, "square", .06, 300); buzz(30);
+  spider.phase = "up";
+  spider.timer = 22 + Math.random()*14;
+}
+function updSpider(dt){
+  if (spider.phase === "idle"){
+    spider.timer -= dt;
+    if (spider.timer <= 0){
+      const prey = ballsList.find(b => !b.warp && !b.held && b.y > 150 && b.y < 480 && b.x > 60 && b.x < 380);
+      if (prey){
+        spider.phase = "drop"; spider.ball = prey; spider.y = -30; spider.x = prey.x;
+        prey.held = true; prey.vx = 0; prey.vy = 0; prey.trail.length = 0;
+        spider.mash = 0;
+        say("PAJĄK ZŁAPAŁ PSZCZOŁĘ!  MASH ← →", 2.2);
+        beep(160, .5, "sawtooth", .05, -100); buzz([40,60,40]);
+      } else spider.timer = 3;
+    }
+  } else if (spider.phase === "drop"){
+    spider.y += 600*dt; spider.x = spider.ball.x;
+    if (spider.y >= spider.ball.y - 24){ spider.y = spider.ball.y - 24; spider.phase = "hold"; spider.hold = 1.6; }
+  } else if (spider.phase === "hold"){
+    spider.x = spider.ball.x;
+    spider.hold -= dt;
+    if (spider.hold <= 0) spiderThrow();
+  } else if (spider.phase === "up"){
+    spider.y -= 700*dt;
+    if (spider.y < -30){ spider.phase = "idle"; spider.ball = null; }
+  }
+}
+
+/* ---------- boss: KRÓLOWA OS — hołd dla Attack from Mars ---------- */
+const queen = { alive: false, hp: 0, max: 0, hitCool: 0 };
+function queenPos(){
+  return { x: 222 + Math.sin(T*0.7)*120, y: 185 + Math.sin(T*1.13)*45 };
+}
+function collideQueen(b){
+  const qp = queenPos();
+  let nx = b.x-qp.x, ny = b.y-qp.y;
+  const d = Math.hypot(nx,ny), rr = b.r + 19;
+  if (d >= rr || d === 0) return;
+  nx/=d; ny/=d;
+  const vn = b.vx*nx + b.vy*ny;
+  b.x = qp.x + nx*rr; b.y = qp.y + ny*rr;
+  if (vn < 0){ b.vx -= 2*vn*nx; b.vy -= 2*vn*ny; b.vx += nx*120; b.vy += ny*120; }
+  if (queen.hitCool <= 0 && vn < -140){
+    queen.hitCool = 0.5; queen.hp--;
+    registerHit(qp.x, qp.y, 300);
+    spawnSparks(qp.x, qp.y, "#FF6B35", 10);
+    beep(880, .08, "square", .06, -300);
+    if (queen.hp <= 0){
+      queen.alive = false;
+      addScore(2000);
+      say("KRÓLOWA OS POKONANA!  +" + 2000*level*(effects.fever>0?2:1), 2.6);
+      melody([392,523,659,784,1047,1319,1568], 0.07, 0.13, "square", 0.055);
+      flash = 0.5; shake = 8;
+      buzz([30,50,30,50,90]);
+      spawnSparks(qp.x, qp.y, "#FF6B35", 40, 500);
+      spawnPickup(qp.x, qp.y);
+    }
+  }
+}
+
+/* ---------- VIDEO MODE: FLAPPY BEE — hołd dla trybów video z T2 ---------- */
+const vm = { t: 0, y: 300, vy: 0, gates: [], gateT: 0, score: 0, over: 0, msg: "" };
+function startVideoMode(){
+  state = "video";
+  vm.t = 14; vm.y = 300; vm.vy = 0; vm.gates = []; vm.gateT = 0.7; vm.score = 0; vm.over = 0; vm.msg = "";
+  plunger.charging = false;
+  melody([523,659,784,1047], 0.07, 0.12, "square", 0.05);
+}
+function endVideoMode(){
+  state = "play";
+  say("VIDEO MODE: BONUS +" + vm.score, 2.2);
+  flash = 0.3;
+}
+function vmFlap(){
+  if (vm.over > 0) return;
+  vm.vy = -330;
+  beep(500, .06, "square", .04);
+}
+function vmCrash(msg){
+  vm.msg = msg; vm.over = 1.2;
+  buzz(80); beep(400, .4, "sawtooth", .06, -350);
+  spawnSparks(120, vm.y, "#FFC93C", 16, 300);
+}
+function stepVideo(dt){
+  if (vm.over > 0){
+    vm.over -= dt;
+    if (vm.over <= 0) endVideoMode();
+    return;
+  }
+  vm.t -= dt;
+  if (vm.t <= 0){ vmCrash("KONIEC CZASU"); return; }
+  vm.vy += 900*dt; vm.y += vm.vy*dt;
+  vm.gateT -= dt;
+  if (vm.gateT <= 0){ vm.gateT = 1.5; vm.gates.push({ x: W+40, c: 150 + Math.random()*340, passed: false }); }
+  for (let i = vm.gates.length-1; i >= 0; i--){
+    const g = vm.gates[i];
+    g.x -= 200*dt;
+    if (g.x < 0){ vm.gates.splice(i,1); continue; }
+    if (!g.passed && g.x < 94){
+      g.passed = true;
+      const pts = 250 * level * (effects.fever>0?2:1);
+      score += pts; vm.score += pts;
+      beep(700, .07, "square", .05); buzz(10);
+    }
+    if (Math.abs(120-g.x) < 26 && Math.abs(vm.y-g.c) > 57){ vmCrash("CRASH!"); return; }
+  }
+  if (vm.y < 76){ vm.y = 76; vm.vy = 0; }   // sufit tylko blokuje
+  if (vm.y > 564) vmCrash("CRASH!");
+}
+
+/* ---------- skill shot (klasyka Williamsa): traf w podświetloną strefę mocy ---------- */
+const SS_MIN = 0.6, SS_MAX = 0.78;
 
 /* ---------- flippery ---------- */
 function mkFlipper(px,py,dir){
@@ -483,6 +613,8 @@ function resetBall(){
   ballsList = [ newBall(443, 640) ];
   plunger.power = 0; plunger.charging = false;
   portal.cool = 0;
+  spider.phase = "idle"; spider.ball = null;
+  spider.timer = Math.max(spider.timer, 6);
 }
 function newGame(){
   score = 0; lives = 3; level = 1; newHi = false;
@@ -490,12 +622,15 @@ function newGame(){
   msgs.length = 0; popups.length = 0; pickups.length = 0;
   effects.fever = effects.shield = effects.big = effects.slow = 0;
   pickupTimer = 6;
+  queen.alive = false;
+  spider.phase = "idle"; spider.timer = 20; spider.ball = null;
   spawnTargets(); resetLetters();
   state = "play"; resetBall();
 }
 function loseLife(){
   lives--;
-  effects.fever = effects.shield = effects.big = effects.slow = 0;
+  effects.shield = effects.big = effects.slow = 0;
+  if (level < MAXLEVEL) effects.fever = 0;   // WIZARD MODE zostaje do końca gry
   combo = 0;
   buzz(90);
   beep(200, .4, "triangle", .07, -150);
@@ -518,6 +653,17 @@ function levelUp(){
   if (level === 5) say("WIATRAK! UWAŻAJ NA ŁOPATY", 2.6);
   if (level === 6) say("DRUGI LASER!", 2.6);
   if (level === 7) say("BUMPER ZERWAŁ SIĘ ZE SMYCZY!", 2.6);
+  if (level === 3 || level === 6 || level === 9){
+    queen.alive = true; queen.max = queen.hp = 2 + level; queen.hitCool = 0;
+    say("KRÓLOWA OS NADLATUJE! ZESTRZEL JĄ", 2.8);
+    buzz([60,40,60]);
+  }
+  if (level === MAXLEVEL){
+    effects.fever = 9999;
+    say("★ WIZARD MODE ★  PUNKTY ×2 DO KOŃCA", 3);
+    flash = 0.6;
+    melody([440,554,659,880,1109,1319], 0.08, 0.14, "sawtooth", 0.05);
+  }
   spawnTargets(); resetLetters();
   spawnSparks(222, 360, "#FFC93C", 26, 420);
 }
@@ -529,6 +675,13 @@ function releasePlunger(){
     b.vy = -(950 + plunger.power*650);
     buzz(25);
     beep(140, .3, "sawtooth", .06, 620);
+    if (plunger.power >= SS_MIN && plunger.power <= SS_MAX){
+      addScore(500);
+      say("SKILL SHOT!  +" + 500*level*(effects.fever>0?2:1), 1.8);
+      melody([880,1175,1760], 0.06, 0.1, "square", 0.05);
+      buzz([15,25,15]);
+      spawnSparks(b.x, b.y, "#28F2E4", 12, 300);
+    }
   }
   plunger.power = 0;
 }
@@ -551,6 +704,7 @@ function step(dt){
     s.vy += 700*dt;
     s.x += s.vx*dt; s.y += s.vy*dt;
   }
+  if (state === "video"){ stepVideo(dt); return; }
   if (state !== "play") return;
 
   for (const k in effects) if (effects[k] > 0) effects[k] = Math.max(0, effects[k] - dt);
@@ -571,6 +725,8 @@ function step(dt){
 
   if (plunger.charging && ballOnPlunger()) plunger.power = Math.min(1, plunger.power + dt*1.15);
   if (portal.cool > 0) portal.cool -= dt;
+  if (queen.hitCool > 0) queen.hitCool -= dt;
+  updSpider(dt);
 
   const dtb = dt * (effects.slow > 0 ? 0.55 : 1);   // slow-mo działa na kulki
 
@@ -588,6 +744,8 @@ function step(dt){
       }
       continue;
     }
+
+    if (b.held) continue;   // kulka w łapach pająka
 
     b.vy += G * gravScale() * dtb;
 
@@ -616,6 +774,7 @@ function step(dt){
     posts.forEach(p => collideCircle(b, p, 0, 0));
     flippers.forEach(f => collideFlipper(b, f));
     if (rotorActive()) collideRotor(b);
+    if (queen.alive) collideQueen(b);
 
     // drop targety
     targets.forEach(tg => {
@@ -755,7 +914,53 @@ function drawBee(x, y, r, wings){
   ctx.fillRect(x + r*0.05, y-r, r*0.33, r*2);
   ctx.restore();
 }
+function drawStars(){
+  stars.forEach(st => {
+    ctx.globalAlpha = 0.25 + 0.35*(0.5 + 0.5*Math.sin(T*1.7 + st.ph));
+    ctx.fillStyle = "#B9AEE8";
+    ctx.fillRect(st.x, st.y, st.s, st.s);
+  });
+  ctx.globalAlpha = 1;
+}
+function drawVideo(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle = "#060410";
+  ctx.fillRect(-8,-8,W+16,H+16);
+  drawStars();
+  text("VIDEO MODE", 240, 26, 18, "#9BE8FF", "center", 12);
+  neonStroke("#9BE8FF", 3, 12);
+  ctx.strokeRect(30, 50, 420, 540);
+  ctx.shadowBlur = 0;
+  // pasek czasu
+  ctx.fillStyle = "#FFC93C";
+  ctx.shadowColor = "#FFC93C"; ctx.shadowBlur = 8;
+  ctx.fillRect(30, 598, 420*Math.max(0, vm.t/14), 6);
+  ctx.shadowBlur = 0;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(32, 52, 416, 536); ctx.clip();
+  vm.gates.forEach(g => {
+    neonStroke("#7B5CFF", 2.5, 10);
+    ctx.fillStyle = "rgba(123,92,255,.25)";
+    ctx.fillRect(g.x-13, 52, 26, g.c-70-52);
+    ctx.strokeRect(g.x-13, 52, 26, g.c-70-52);
+    ctx.fillRect(g.x-13, g.c+70, 26, 588-(g.c+70));
+    ctx.strokeRect(g.x-13, g.c+70, 26, 588-(g.c+70));
+    ctx.shadowBlur = 0;
+  });
+  drawBee(120, vm.y, 13, true);
+  sparks.forEach(s => {
+    ctx.globalAlpha = Math.max(0, s.life/0.55);
+    ctx.fillStyle = s.c;
+    ctx.fillRect(s.x-1.5, s.y-1.5, 3, 3);
+  });
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  if (vm.over > 0) text(vm.msg, 240, 320, 34, "#FF3EA5", "center", 18);
+  text("BONUS  " + vm.score, 240, 634, 16, "#EDE9FF", "center", 6);
+  text("SPACJA / DOTYK = LOT", 240, 664, 12, "#B9AEE8", "center", 0);
+}
 function draw(){
+  if (state === "video"){ drawVideo(); return; }
   ctx.setTransform(DPR,0,0,DPR,0,0);
   if (shake > 0.2){
     ctx.translate((Math.random()-.5)*shake, (Math.random()-.5)*shake);
@@ -765,12 +970,7 @@ function draw(){
   ctx.fillRect(-8,-8,W+16,H+16);
 
   // gwiazdy
-  stars.forEach(st => {
-    ctx.globalAlpha = 0.25 + 0.35*(0.5 + 0.5*Math.sin(T*1.7 + st.ph));
-    ctx.fillStyle = "#B9AEE8";
-    ctx.fillRect(st.x, st.y, st.s, st.s);
-  });
-  ctx.globalAlpha = 1;
+  drawStars();
 
   // delikatna poświata planszy
   const bg = ctx.createRadialGradient(240,300,40, 240,300,420);
@@ -833,6 +1033,41 @@ function draw(){
     ctx.shadowBlur = 0;
     text(String(p.score), p.x, p.y, 11, f>0 ? "#0B0817" : p.c, "center", 0);
   });
+
+  // KRÓLOWA OS
+  if (queen.alive){
+    const qp = queenPos();
+    ctx.globalAlpha = 0.4 + 0.3*Math.abs(Math.sin(T*22));
+    ctx.fillStyle = "#FFD7B0";
+    [[-14,-16],[14,-16]].forEach(([ox,oy]) => {
+      ctx.beginPath();
+      ctx.ellipse(qp.x+ox, qp.y+oy, 13, 7, ox<0?-0.6:0.6, 0, 7);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    const qg = ctx.createRadialGradient(qp.x-5, qp.y-5, 2, qp.x, qp.y, 19);
+    qg.addColorStop(0,"#FFB066"); qg.addColorStop(1,"#C43A1B");
+    ctx.beginPath(); ctx.arc(qp.x, qp.y, 19, 0, 7);
+    ctx.fillStyle = qg;
+    ctx.shadowColor = queen.hitCool > 0.3 ? "#FFFFFF" : "#FF2E2E";
+    ctx.shadowBlur = 16;
+    ctx.fill(); ctx.shadowBlur = 0;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(qp.x, qp.y, 18.5, 0, 7); ctx.clip();
+    ctx.fillStyle = "rgba(43,20,5,.85)";
+    ctx.fillRect(qp.x-13, qp.y-19, 6, 38);
+    ctx.fillRect(qp.x-1, qp.y-19, 6, 38);
+    ctx.fillRect(qp.x+11, qp.y-19, 6, 38);
+    ctx.restore();
+    ctx.fillStyle = "#FF2E2E";
+    ctx.fillRect(qp.x-8, qp.y-8, 4, 4);
+    ctx.fillRect(qp.x+4, qp.y-8, 4, 4);
+    // pasek HP
+    for (let i = 0; i < queen.max; i++){
+      ctx.fillStyle = i < queen.hp ? "#FFC93C" : "rgba(74,63,110,.8)";
+      ctx.fillRect(qp.x - queen.max*5 + i*10, qp.y-34, 7, 4);
+    }
+  }
 
   // wiatrak
   if (rotorActive()){
@@ -978,6 +1213,9 @@ function draw(){
   }
   ctx.stroke();
   if (plunger.charging){
+    // strefa skill shot na mierniku mocy
+    ctx.fillStyle = "rgba(40,242,228,.45)";
+    ctx.fillRect(465, 700 - SS_MAX*380, 8, (SS_MAX-SS_MIN)*380);
     ctx.fillStyle = "#FFC93C";
     ctx.shadowColor = "#FFC93C"; ctx.shadowBlur = 10;
     ctx.fillRect(466, 700 - compress*380, 6, compress*380);
@@ -998,6 +1236,33 @@ function draw(){
       });
       drawBee(b.x, b.y, b.r, false);
     });
+  }
+
+  // PAJĄK na nici
+  if (spider.phase !== "idle"){
+    const jitter = spider.phase === "hold" ? Math.sin(T*40)*2 : 0;
+    const sx = spider.x + jitter, sy = spider.y;
+    ctx.strokeStyle = "rgba(185,174,232,.6)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(spider.x, -10); ctx.lineTo(spider.x, sy); ctx.stroke();
+    // odnóża
+    neonStroke("#7B5CFF", 2, 6);
+    ctx.beginPath();
+    for (let i = 0; i < 3; i++){
+      const ly = sy + 2 + i*4, lx = 10 + i*4;
+      ctx.moveTo(sx-4, sy); ctx.lineTo(sx-lx, ly+6);
+      ctx.moveTo(sx+4, sy); ctx.lineTo(sx+lx, ly+6);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.arc(sx, sy, 11, 0, 7);
+    ctx.fillStyle = "#241D3D";
+    ctx.strokeStyle = "#7B5CFF"; ctx.lineWidth = 2;
+    ctx.shadowColor = "#7B5CFF"; ctx.shadowBlur = 10;
+    ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.fillStyle = "#FF2E2E";
+    ctx.fillRect(sx-5, sy-3, 3, 3);
+    ctx.fillRect(sx+2, sy-3, 3, 3);
   }
 
   // iskry
@@ -1074,8 +1339,8 @@ function draw(){
     text("RETRO PINBALL", 240, 376, 15, "#EDE9FF", "center", 6);
     text("← →  FLIPPERY   ·   SPACJA  WYRZUTNIA", 240, 434, 13, "#B9AEE8", "center", 0);
     text("ZBIJ TARGETY = POZIOM   ·   ZAPAL B-Z-Z-Z", 240, 458, 12, "#B9AEE8", "center", 0);
-    text("ŁAP BONUSY: 1UP · MULTIBALL · TARCZA", 240, 482, 12, "#B9AEE8", "center", 0);
-    text("TUNELE · LASERY · WIATRAK · WIR", 240, 506, 12, "#B9AEE8", "center", 0);
+    text("ŁAP BONUSY: 1UP · MULTIBALL · TV", 240, 482, 12, "#B9AEE8", "center", 0);
+    text("PAJĄK · KRÓLOWA OS · SKILL SHOT", 240, 506, 12, "#B9AEE8", "center", 0);
     if (hi > 0) text("REKORD  " + hi, 240, 542, 13, "#FF3EA5", "center", 4);
     if (show) text("INSERT COIN — SPACJA / DOTYK", 240, 588, 16, "#FFC93C", "center", 10);
   } else if (state === "over"){
@@ -1118,9 +1383,13 @@ window.addEventListener("keydown", e => {
   if (["ArrowLeft","ArrowRight","ArrowDown","Space"].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (e.code === "KeyM"){ toggleMusic(); return; }
+  if (state === "video"){
+    if (["Space","Enter","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyA","KeyD","KeyZ","Slash"].includes(e.code)) vmFlap();
+    return;
+  }
   if ((e.code === "Space" || e.code === "Enter") && startIfIdle()) return;
-  if (L_KEYS.includes(e.code)){ flippers[0].on = true; beep(90,.05,"triangle",.05); }
-  if (R_KEYS.includes(e.code)){ flippers[1].on = true; beep(90,.05,"triangle",.05); }
+  if (L_KEYS.includes(e.code)){ flippers[0].on = true; spiderMash(); beep(90,.05,"triangle",.05); }
+  if (R_KEYS.includes(e.code)){ flippers[1].on = true; spiderMash(); beep(90,.05,"triangle",.05); }
   if (e.code === "Space" || e.code === "ArrowDown") plunger.charging = true;
 });
 window.addEventListener("keyup", e => {
@@ -1138,6 +1407,7 @@ cv.addEventListener("touchstart", e => {
     const gx = (t.clientX - rect.left) / rect.width * W;
     const gy = (t.clientY - rect.top) / rect.height * H;
     if (gy < 85 && gx > 380){ toggleMusic(); continue; }
+    if (state === "video"){ vmFlap(); continue; }
     if (startIfIdle()) continue;
     if (ballOnPlunger()){
       touchMap[t.identifier] = "P"; plunger.charging = true;
@@ -1145,6 +1415,7 @@ cv.addEventListener("touchstart", e => {
       const half = gx < W/2 ? 0 : 1;
       touchMap[t.identifier] = half === 0 ? "L" : "R";
       flippers[half].on = true;
+      spiderMash();
       beep(90,.05,"triangle",.05);
     }
   }
