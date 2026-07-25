@@ -158,7 +158,11 @@ const msgs = [];             // komunikaty na planszy
 const popups = [];           // wyskakujące punkty
 const sparks = [];           // iskry
 let combo = 0, lastHit = -9;
+let fogCv = null;
 const effects = { fever: 0, shield: 0, big: 0, slow: 0 };
+const debuffs = { short: 0, heavy: 0, invert: 0, fog: 0 };   // klątwy
+const honey = { t: 0, x: 222, y: 300, r: 46 };               // rozlany miód
+const fin = { L: 0, R: 0 };                                  // wciśnięcia flipperów (liczniki)
 
 function newBall(x,y,vx,vy){
   return { x, y, vx: vx||0, vy: vy||0, r: 9, trail: [], still: 0, warp: 0 };
@@ -194,7 +198,9 @@ function registerHit(x, y, base){
     flash = Math.max(flash, 0.25);
   }
 }
-function gravScale(){ return 1 + Math.min(0.4, 0.06*(level-1)); }
+function gravScale(){
+  return (1 + Math.min(0.4, 0.06*(level-1))) * (debuffs.heavy > 0 ? 1.5 : 1);
+}
 
 /* ---------- geometria stołu ---------- */
 const segs = [];
@@ -277,6 +283,41 @@ const PICKUP_TYPES = [
 ];
 const PICKUP_SLOTS = [ [100,340],[344,340],[70,250],[374,250],[222,300] ];
 let pickups = [], pickupTimer = 6;
+
+/* ---------- klątwy: kolczaste kapsułki, których lepiej unikać ---------- */
+const HAZARD_TYPES = [
+  { k:"SHORT",  c:"#FF5A5A", sym:"✂", w:24 },
+  { k:"HEAVY",  c:"#FF8A3C", sym:"▼", w:24 },
+  { k:"INVERT", c:"#C94FFF", sym:"⇄", w:18 },
+  { k:"FOG",    c:"#8A93B8", sym:"☁", w:16 },
+  { k:"HONEY",  c:"#FFB020", sym:"≈", w:18 },
+];
+const HONEY_SLOTS = [ [150,430],[294,430],[222,300],[222,455] ];
+let hazTimer = 14;
+function spawnHazard(){
+  if (pickups.filter(p => p.bad).length >= 2) return;
+  const total = HAZARD_TYPES.reduce((a,t) => a+t.w, 0);
+  let r = Math.random()*total, type = HAZARD_TYPES[0];
+  for (const t of HAZARD_TYPES){ r -= t.w; if (r <= 0){ type = t; break; } }
+  const slot = PICKUP_SLOTS[Math.floor(Math.random()*PICKUP_SLOTS.length)];
+  pickups.push({ x: slot[0], y: slot[1], type, t: 0, life: 7, bad: true });
+}
+function applyHazard(p){
+  const k = p.type.k;
+  spawnSparks(p.x, p.y, p.type.c, 12, 300);
+  buzz(70); shake = 5;
+  beep(110, .5, "sawtooth", .07, -60);
+  if (k === "SHORT"){ debuffs.short = 8;  say("KLĄTWA: KRÓTKIE FLIPPERY  8s", 2.2); }
+  if (k === "HEAVY"){ debuffs.heavy = 8;  say("KLĄTWA: CIĘŻKA GRAWITACJA  8s", 2.2); }
+  if (k === "INVERT"){ debuffs.invert = 6; say("KLĄTWA: ODWRÓCONE FLIPPERY!  6s", 2.2); }
+  if (k === "FOG"){ debuffs.fog = 6;      say("KLĄTWA: ZAĆMIENIE  6s", 2.2); }
+  if (k === "HONEY"){
+    const s = HONEY_SLOTS[Math.floor(Math.random()*HONEY_SLOTS.length)];
+    honey.t = 10; honey.x = s[0]; honey.y = s[1];
+    say("ROZLANY MIÓD! LEPKA PUŁAPKA  10s", 2.2);
+  }
+  popup(p.x, p.y, p.type.sym);
+}
 function rollPickupType(){
   const total = PICKUP_TYPES.reduce((a,t) => a+t.w, 0);
   let r = Math.random()*total;
@@ -284,7 +325,7 @@ function rollPickupType(){
   return PICKUP_TYPES[0];
 }
 function spawnPickup(fx, fy){
-  if (pickups.length >= 2 && fx === undefined) return;
+  if (pickups.filter(p => !p.bad).length >= 2 && fx === undefined) return;
   const slot = PICKUP_SLOTS[Math.floor(Math.random()*PICKUP_SLOTS.length)];
   const taken = pickups.some(p => Math.abs(p.x-slot[0]) < 5 && Math.abs(p.y-slot[1]) < 5);
   const x = fx !== undefined ? fx : (taken ? slot[0] : slot[0]);
@@ -493,8 +534,10 @@ function mkFlipper(px,py,dir){
   return {px,py,dir,len:62,r:10,rest:.55,active:-.7,ang:.55,vel:0,on:false};
 }
 const flippers = [ mkFlipper(146,645,1), mkFlipper(298,645,-1) ];
+function effLen(f){ return f.len * (debuffs.short > 0 ? 0.62 : 1); }
 function flipTip(f){
-  return { x: f.px + f.dir*Math.cos(f.ang)*f.len, y: f.py + Math.sin(f.ang)*f.len };
+  const L = effLen(f);
+  return { x: f.px + f.dir*Math.cos(f.ang)*L, y: f.py + Math.sin(f.ang)*L };
 }
 function updFlipper(f,dt){
   const target = f.on ? f.active : f.rest;
@@ -607,8 +650,8 @@ function collideFlipper(b,f){
   b.x = cx + nx*rr; b.y = cy + ny*rr;
   // prędkość punktu styku na flipperze (obrót wokół osi)
   const s = Math.sin(f.ang), c = Math.cos(f.ang);
-  const vfx = (f.dir===1 ? -s : s) * f.len * t * f.vel;
-  const vfy = c * f.len * t * f.vel;
+  const vfx = (f.dir===1 ? -s : s) * effLen(f) * t * f.vel;
+  const vfy = c * effLen(f) * t * f.vel;
   const rvx = b.vx - vfx, rvy = b.vy - vfy;
   const vn = rvx*nx + rvy*ny;
   if (vn < 0){
@@ -631,7 +674,9 @@ function newGame(){
   combo = 0; lastHit = -9;
   msgs.length = 0; popups.length = 0; pickups.length = 0;
   effects.fever = effects.shield = effects.big = effects.slow = 0;
-  pickupTimer = 6;
+  debuffs.short = debuffs.heavy = debuffs.invert = debuffs.fog = 0;
+  honey.t = 0;
+  pickupTimer = 6; hazTimer = 14;
   queen.alive = false;
   spider.phase = "idle"; spider.timer = 20; spider.ball = null;
   spawnTargets(); resetLetters();
@@ -641,6 +686,8 @@ function loseLife(){
   lives--;
   effects.shield = effects.big = effects.slow = 0;
   if (level < MAXLEVEL) effects.fever = 0;   // WIZARD MODE zostaje do końca gry
+  debuffs.short = debuffs.heavy = debuffs.invert = debuffs.fog = 0;
+  honey.t = 0;
   combo = 0;
   buzz(90);
   beep(200, .4, "triangle", .07, -150);
@@ -702,6 +749,10 @@ function ballOnPlunger(){
 
 function step(dt){
   T += dt;
+  // odwrócona klątwa zamienia strony flipperów
+  const inv = debuffs.invert > 0;
+  flippers[0].on = (inv ? fin.R : fin.L) > 0;
+  flippers[1].on = (inv ? fin.L : fin.R) > 0;
   flippers.forEach(f => updFlipper(f, dt));
   segs.forEach(s => { if (s.flash>0) s.flash = Math.max(0, s.flash - dt*3.5); });
   bumpers.forEach(p => { if (p.flash>0) p.flash = Math.max(0, p.flash - dt*3.5); });
@@ -718,6 +769,8 @@ function step(dt){
   if (state !== "play") return;
 
   for (const k in effects) if (effects[k] > 0) effects[k] = Math.max(0, effects[k] - dt);
+  for (const k in debuffs) if (debuffs[k] > 0) debuffs[k] = Math.max(0, debuffs[k] - dt);
+  if (honey.t > 0) honey.t = Math.max(0, honey.t - dt);
 
   // bumper centralny ucieka od poziomu 7
   bumpers[2].x = level >= 7 ? 222 + Math.sin(T*1.1)*58 : 222;
@@ -725,8 +778,15 @@ function step(dt){
   // pojawianie się bonusów
   pickupTimer -= dt;
   if (pickupTimer <= 0){
-    if (pickups.length < 2) spawnPickup();
+    spawnPickup();
     pickupTimer = 9 + Math.random()*4;
+  }
+  if (level >= 2){
+    hazTimer -= dt;
+    if (hazTimer <= 0){
+      spawnHazard();
+      hazTimer = Math.max(7, 15 - level) + Math.random()*4;   // im wyżej, tym częściej
+    }
   }
   for (let i = pickups.length-1; i >= 0; i--){
     pickups[i].t += dt;
@@ -782,6 +842,14 @@ function step(dt){
     b.y += b.vy*dtb;
     const sp = Math.hypot(b.vx, b.vy);
     if (sp > MAXV){ b.vx *= MAXV/sp; b.vy *= MAXV/sp; }
+
+    // lepki miód mocno wyhamowuje
+    if (honey.t > 0 && Math.hypot(b.x-honey.x, b.y-honey.y) < honey.r){
+      const m = Math.max(0, 1 - 6*dtb);
+      b.vx *= m; b.vy *= m;
+      const hs = Math.hypot(b.vx, b.vy);
+      if (hs > 330){ b.vx *= 330/hs; b.vy *= 330/hs; }
+    }
 
     segs.forEach(s => collideSeg(b, s));
     if (effects.shield > 0){
@@ -845,7 +913,8 @@ function step(dt){
       const p = pickups[i];
       if (Math.hypot(b.x-p.x, b.y-p.y) < 13 + b.r){
         pickups.splice(i,1);
-        applyPickup(p, b);
+        if (p.bad) applyHazard(p);
+        else applyPickup(p, b);
       }
     }
 
@@ -1178,7 +1247,27 @@ function draw(){
     });
   }
 
-  // bonusy do złapania (bujające się kapsułki)
+  // kałuża miodu
+  if (honey.t > 0){
+    ctx.globalAlpha = Math.min(1, honey.t / 1.5);
+    ctx.beginPath();
+    for (let i = 0; i <= 14; i++){
+      const a = i/14 * Math.PI*2;
+      const r = honey.r * (0.86 + 0.14*Math.sin(T*2.2 + i*2.4));
+      const px = honey.x + Math.cos(a)*r, py = honey.y + Math.sin(a)*r*0.85;
+      i === 0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,176,32,.28)";
+    ctx.fill();
+    neonStroke("#FFB020", 2, 10);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    text("≈", honey.x, honey.y, 18, "#FFB020", "center", 6);
+    ctx.globalAlpha = 1;
+  }
+
+  // bonusy (sześciokąty) i klątwy (kolczaste gwiazdy)
   pickups.forEach(p => {
     const bob = Math.sin(T*3 + p.x) * 4;
     const dying = p.life - p.t < 2;
@@ -1186,16 +1275,26 @@ function draw(){
     const y = p.y + bob;
     neonStroke(p.type.c, 2.5, 12);
     ctx.beginPath();
-    for (let i = 0; i < 6; i++){
-      const a = Math.PI/6 + i*Math.PI/3 + T*0.8;
-      const px = p.x + Math.cos(a)*14, py = y + Math.sin(a)*14;
-      i === 0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+    if (p.bad){
+      for (let i = 0; i < 16; i++){
+        const a = i*Math.PI/8 - T*1.2;
+        const r = i % 2 === 0 ? 16 : 8;
+        const px = p.x + Math.cos(a)*r, py = y + Math.sin(a)*r;
+        i === 0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+      }
+    } else {
+      for (let i = 0; i < 6; i++){
+        const a = Math.PI/6 + i*Math.PI/3 + T*0.8;
+        const px = p.x + Math.cos(a)*14, py = y + Math.sin(a)*14;
+        i === 0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+      }
     }
     ctx.closePath();
-    ctx.fillStyle = "rgba(11,8,23,.75)";
+    ctx.fillStyle = p.bad ? "rgba(40,6,10,.8)" : "rgba(11,8,23,.75)";
     ctx.fill(); ctx.stroke();
     ctx.shadowBlur = 0;
-    text(p.type.k === "1UP" ? "1UP" : p.type.k[0], p.x, y+1, 11, p.type.c, "center", 6);
+    text(p.bad ? p.type.sym : (p.type.k === "1UP" ? "1UP" : p.type.k[0]),
+         p.x, y+1, 11, p.type.c, "center", 6);
   });
 
   // tarcza nad rynną
@@ -1294,6 +1393,28 @@ function draw(){
   });
   ctx.globalAlpha = 1;
 
+  // zaćmienie: mgła zakrywa planszę, widać tylko okolice kulek i flipperów
+  if (debuffs.fog > 0){
+    if (!fogCv){ fogCv = document.createElement("canvas"); fogCv.width = W; fogCv.height = H; }
+    const fc = fogCv.getContext("2d");
+    fc.clearRect(0,0,W,H);
+    fc.fillStyle = "rgba(4,2,10,0.88)";
+    fc.fillRect(0,0,W,H);
+    fc.globalCompositeOperation = "destination-out";
+    const holes = ballsList.filter(b => b.warp <= 0).map(b => [b.x, b.y, 85]);
+    holes.push([222, 655, 120]);   // flippery zawsze widoczne
+    holes.forEach(([hx,hy,hr]) => {
+      const g = fc.createRadialGradient(hx,hy,hr*0.25, hx,hy,hr);
+      g.addColorStop(0,"rgba(0,0,0,1)"); g.addColorStop(1,"rgba(0,0,0,0)");
+      fc.fillStyle = g;
+      fc.beginPath(); fc.arc(hx,hy,hr,0,7); fc.fill();
+    });
+    fc.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = Math.min(1, debuffs.fog / 1.2);
+    ctx.drawImage(fogCv, 0, 0);
+    ctx.globalAlpha = 1;
+  }
+
   // wyskakujące punkty
   popups.forEach(p => {
     ctx.globalAlpha = Math.max(0, 1 - p.t/0.9);
@@ -1316,6 +1437,10 @@ function draw(){
     [effects.shield, "TARCZA",   "#28F2E4"],
     [effects.big,    "WIELKA",   "#FF3EA5"],
     [effects.slow,   "SLOW-MO",  "#7B5CFF"],
+    [debuffs.short,  "✂ KRÓTKIE FLIPPERY", "#FF5A5A"],
+    [debuffs.heavy,  "▼ CIĘŻKA GRAW.",     "#FF5A5A"],
+    [debuffs.invert, "⇄ ODWRÓCONE!",       "#FF5A5A"],
+    [debuffs.fog,    "☁ ZAĆMIENIE",        "#FF5A5A"],
   ];
   fx.forEach(([tv, label, c]) => {
     if (tv <= 0) return;
@@ -1360,8 +1485,8 @@ function draw(){
     text("RETRO PINBALL", 240, 376, 15, "#EDE9FF", "center", 6);
     text("← →  FLIPPERY   ·   SPACJA  WYRZUTNIA", 240, 434, 13, "#B9AEE8", "center", 0);
     text("ZBIJ TARGETY = POZIOM   ·   ZAPAL B-Z-Z-Z", 240, 458, 12, "#B9AEE8", "center", 0);
-    text("ŁAP BONUSY: 1UP · MULTIBALL · TV", 240, 482, 12, "#B9AEE8", "center", 0);
-    text("PAJĄK · KRÓLOWA OS · SKILL SHOT", 240, 506, 12, "#B9AEE8", "center", 0);
+    text("ŁAP BONUSY: 1UP · MULTI · TV — UNIKAJ KLĄTW ✂▼⇄", 240, 482, 12, "#B9AEE8", "center", 0);
+    text("PAJĄK · KRÓLOWA OS · SKILL SHOT · MIÓD", 240, 506, 12, "#B9AEE8", "center", 0);
     if (hi > 0) text("REKORD  " + hi, 240, 542, 13, "#FF3EA5", "center", 4);
     if (show) text("INSERT COIN — SPACJA / DOTYK", 240, 588, 16, "#FFC93C", "center", 10);
   } else if (state === "over"){
@@ -1391,6 +1516,11 @@ requestAnimationFrame(frame);
 
 /* ---------- sterowanie ---------- */
 const L_KEYS = ["ArrowLeft","KeyA","KeyZ"], R_KEYS = ["ArrowRight","KeyD","Slash"];
+function pressFlip(side, down){
+  fin[side] += down ? 1 : -1;
+  if (fin[side] < 0) fin[side] = 0;
+  if (down){ spiderMash(); beep(90,.05,"triangle",.05); }
+}
 function toggleMusic(){
   music.on = !music.on;
   say(music.on ? "MUZYKA ON" : "MUZYKA OFF", 1);
@@ -1409,14 +1539,18 @@ window.addEventListener("keydown", e => {
     return;
   }
   if ((e.code === "Space" || e.code === "Enter") && startIfIdle()) return;
-  if (L_KEYS.includes(e.code)){ flippers[0].on = true; spiderMash(); beep(90,.05,"triangle",.05); }
-  if (R_KEYS.includes(e.code)){ flippers[1].on = true; spiderMash(); beep(90,.05,"triangle",.05); }
+  if (L_KEYS.includes(e.code)) pressFlip("L", true);
+  if (R_KEYS.includes(e.code)) pressFlip("R", true);
   if (e.code === "Space" || e.code === "ArrowDown") plunger.charging = true;
 });
 window.addEventListener("keyup", e => {
-  if (L_KEYS.includes(e.code)) flippers[0].on = false;
-  if (R_KEYS.includes(e.code)) flippers[1].on = false;
+  if (L_KEYS.includes(e.code)) pressFlip("L", false);
+  if (R_KEYS.includes(e.code)) pressFlip("R", false);
   if (e.code === "Space" || e.code === "ArrowDown") releasePlunger();
+});
+window.addEventListener("blur", () => {
+  fin.L = 0; fin.R = 0;
+  plunger.charging = false; plunger.power = 0;
 });
 
 // dotyk: strefa "♪" wycisza; kulka na wyrzutni — dotyk ładuje; inaczej połówki = flippery
@@ -1433,11 +1567,9 @@ cv.addEventListener("touchstart", e => {
     if (ballOnPlunger()){
       touchMap[t.identifier] = "P"; plunger.charging = true;
     } else {
-      const half = gx < W/2 ? 0 : 1;
-      touchMap[t.identifier] = half === 0 ? "L" : "R";
-      flippers[half].on = true;
-      spiderMash();
-      beep(90,.05,"triangle",.05);
+      const side = gx < W/2 ? "L" : "R";
+      touchMap[t.identifier] = side;
+      pressFlip(side, true);
     }
   }
 }, {passive:false});
@@ -1446,8 +1578,7 @@ function touchEnd(e){
   for (const t of e.changedTouches){
     const role = touchMap[t.identifier];
     delete touchMap[t.identifier];
-    if (role === "L") flippers[0].on = false;
-    else if (role === "R") flippers[1].on = false;
+    if (role === "L" || role === "R") pressFlip(role, false);
     else if (role === "P") releasePlunger();
   }
 }
