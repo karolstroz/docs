@@ -311,7 +311,7 @@ function applyMysteryResult(){
 }
 
 /* ---------- pełne orbity wokół łuku ---------- */
-const ORBIT = [ {x:52, y:200, r:26}, {x:392, y:200, r:26} ];
+const ORBIT = [ {x:50, y:245, r:26}, {x:394, y:245, r:26} ];   // złote słoneczka przy bandach
 const orbitLast = { side: -1, t: -9 };
 let loopChain = 0, lastLoopT = -9;
 
@@ -489,11 +489,26 @@ seg(314,528,272,598,{kick:330,score:50,rest:1});
 seg(314,528,314,585,{rest:.5}); seg(272,598,314,585,{rest:.5});
 
 const bumpers = [
-  {x:140,y:265,r:27,score:100,flash:0,c:"#28F2E4"},
-  {x:304,y:265,r:27,score:100,flash:0,c:"#FF3EA5"},
-  {x:222,y:155,r:24,score:150,flash:0,c:"#FFC93C"},
+  {x:204,y:242,r:13,score:100,flash:0,c:"#1FB9D8"},
+  {x:280,y:242,r:13,score:100,flash:0,c:"#1FB9D8"},
+  {x:240,y:158,r:28,score:150,flash:0,c:"#E84FD9"},   // wielki różowy starburst
 ];
 const posts = [ {x:424,y:300,r:5} ];
+
+// czerwone ukośne prowadnice i niebieskie kapsuły (kolizje-kapsuły, jak w oryginale)
+const RAILS_RED = [
+  [108,192,178,240], [92,282,162,330],
+  [336,192,266,240], [352,282,282,330],
+];
+const PODS_BLUE = [ [118,545,118,585], [362,545,362,585] ];
+
+// medaliony punktowe 10/25/50 pod łukiem; podświetlony daje ×10
+const MEDALS = [
+  {x:158,y:100,v:10,cool:0},
+  {x:240,y:105,v:25,cool:0},
+  {x:322,y:100,v:50,cool:0},
+];
+function medalLit(){ return Math.floor(T/3) % 3; }
 
 // gwiazdy w tle
 const stars = Array.from({length:42}, () => ({
@@ -505,22 +520,32 @@ const stars = Array.from({length:42}, () => ({
 let targets = [];
 function spawnTargets(){
   const count = Math.min(3 + Math.floor((level-1)/2), 5);
-  const spacing = 46, len = 26, y = 335;
-  const x0 = 222 - (count-1)*spacing/2;
+  // dwie ukośne niebieskie listwy z ząbkami, jak w klasyku
+  const L = [[138,382],[166,412],[194,442]], R = [[342,382],[314,412],[286,442]];
+  const seq = [L[0], R[0], L[1], R[1], L[2]];
   targets = [];
-  for (let i = 0; i < count; i++)
-    targets.push({ x: x0 + i*spacing, y, len, r: 6, dead: false, flash: 0 });
+  for (let i = 0; i < count; i++){
+    const p = seq[i];
+    targets.push({ x: p[0], y: p[1], len: 30, r: 6,
+                   ang: p[0] < 222 ? 0.82 : Math.PI - 0.82,
+                   dead: false, flash: 0 });
+  }
 }
 spawnTargets();
+function targetEnds(tg){
+  const dx = Math.cos(tg.ang)*tg.len/2, dy = Math.sin(tg.ang)*tg.len/2;
+  return [tg.x - dx, tg.y - dy, tg.x + dx, tg.y + dy];
+}
 
 /* ---------- rollovery B-Z-Z-Z pod łukiem ---------- */
 let letters = [];
 function resetLetters(){
+  // kolumna złotych gwiazdek-rolloverów w osi stołu
   letters = [
-    { ch:"B", x:150, y:105, lit:false },
-    { ch:"Z", x:198, y: 88, lit:false },
-    { ch:"Z", x:246, y: 88, lit:false },
-    { ch:"Z", x:294, y:105, lit:false },
+    { ch:"B", x:240, y:300, lit:false },
+    { ch:"Z", x:205, y:345, lit:false },
+    { ch:"Z", x:275, y:345, lit:false },
+    { ch:"Z", x:240, y:390, lit:false },
   ];
 }
 resetLetters();
@@ -535,7 +560,7 @@ const PICKUP_TYPES = [
   { k:"1UP",    c:"#7CFF6B", w:10 },
   { k:"TV",     c:"#9BE8FF", w:12 },
 ];
-const PICKUP_SLOTS = [ [100,340],[344,340],[70,250],[374,250],[222,300] ];
+const PICKUP_SLOTS = [ [100,340],[344,340],[70,250],[374,250],[240,258] ];
 let pickups = [], pickupTimer = 6;
 
 /* ---------- klątwy: kolczaste kapsułki, których lepiej unikać ---------- */
@@ -546,7 +571,7 @@ const HAZARD_TYPES = [
   { k:"FOG",    c:"#8A93B8", sym:"☁", w:16 },
   { k:"HONEY",  c:"#FFB020", sym:"≈", w:18 },
 ];
-const HONEY_SLOTS = [ [150,430],[294,430],[222,300],[222,455] ];
+const HONEY_SLOTS = [ [165,500],[315,500],[240,550],[240,258] ];
 let hazTimer = 14;
 function spawnHazard(){
   if (pickups.filter(p => p.bad).length >= 2) return;
@@ -648,11 +673,11 @@ function laserX(i){
 const LASER_HALF = 40, LASER_R = 5;
 
 /* ---------- wir magnetyczny (poziom 4+) ---------- */
-const vortex = { x:222, y:495, R:110, F:280 };
+const vortex = { x:240, y:452, R:110, F:280 };   // wir mieszka w turkusowej tarczy
 function vortexActive(){ return level >= 4; }
 
 /* ---------- wiatrak (poziom 5+) ---------- */
-const rotor = { x:222, y:250, len:50, r:5 };
+const rotor = { x:240, y:452, len:42, r:5 };   // wiatrak kręci się na tarczy z gwiazdą
 function rotorActive(){ return level >= 5; }
 function rotorAng(){ return T * (2.0 + 0.15*level); }
 
@@ -1277,7 +1302,7 @@ function step(dt){
   if (honey.t > 0) honey.t = Math.max(0, honey.t - dt);
 
   // bumper centralny ucieka od poziomu 7
-  bumpers[2].x = level >= 7 ? 222 + Math.sin(T*1.1)*58 : 222;
+  bumpers[2].x = level >= 7 ? 240 + Math.sin(T*1.1)*58 : 240;
 
   // pojawianie się bonusów
   pickupTimer -= dt;
@@ -1385,6 +1410,8 @@ function step(dt){
   if (themeIdx() === 3 && fireflies.length === 0) spawnFireflies();
   if (themeIdx() !== 3) fireflies.length = 0;
 
+  MEDALS.forEach(m => { if (m.cool > 0) m.cool -= dt; });
+
   if (plunger.charging && ballOnPlunger()) plunger.power = Math.min(1, plunger.power + dt*1.15);
   if (portal.cool > 0) portal.cool -= dt;
   if (portal.blink > 0) portal.blink -= dt;
@@ -1444,6 +1471,26 @@ function step(dt){
     }
 
     segs.forEach(s => collideSeg(b, s));
+    RAILS_RED.forEach(r => {
+      const hit = collideCapsule(b, r[0], r[1], r[2], r[3], 8, 0.6);
+      if (hit && hit.vn < -240) beep(140, .04, "triangle", .03);
+    });
+    PODS_BLUE.forEach(p => collideCapsule(b, p[0], p[1], p[2], p[3], 11, 0.8));
+
+    // medaliony punktowe: podświetlony daje ×10
+    MEDALS.forEach((m, mi) => {
+      if (m.cool > 0) return;
+      if (Math.hypot(b.x-m.x, b.y-m.y) < 15 + b.r){
+        m.cool = 1.2;
+        const lit = medalLit() === mi;
+        const base = m.v * (lit ? 10 : 1);
+        addScore(base);
+        popup(m.x, m.y, "+" + base*level*(effects.fever>0?2:1) + (lit ? " LIT!" : ""));
+        spawnSparks(m.x, m.y, "#F7B500", lit ? 12 : 5, 220);
+        beep(lit ? 1100 : 700, .08, "square", .05);
+      }
+    });
+
     if (trap.closed){
       const hit = collideCapsule(b, 186, 688, 258, 688, 5, 0.45);
       if (hit && hit.vn < -180) beep(150, .05, "triangle", .04);
@@ -1481,7 +1528,8 @@ function step(dt){
     // drop targety
     targets.forEach(tg => {
       if (tg.dead) return;
-      const hit = collideCapsule(b, tg.x - tg.len/2, tg.y, tg.x + tg.len/2, tg.y, tg.r, 0.7);
+      const [tx1, ty1, tx2, ty2] = targetEnds(tg);
+      const hit = collideCapsule(b, tx1, ty1, tx2, ty2, tg.r, 0.7);
       if (hit){
         tg.dead = true;
         registerHit(tg.x, tg.y, 250);
@@ -1687,27 +1735,61 @@ function buildFieldTexture(){
     x.arc(240, 760, 900, a1, a2);
     x.closePath(); x.fill();
   }
-  // tarcza z gwiazdą (dekoracja jak w klasyku)
+  // wielka turkusowa tarcza z gwiazdą w centrum (jak w klasyku)
   const disc = (cx,cy,r,fill) => { x.beginPath(); x.arc(cx,cy,r,0,7); x.fillStyle=fill; x.fill(); };
-  disc(222, 368, 58, "#0E8C90");
-  x.save(); x.translate(222, 368);
+  disc(240, 452, 62, "#0E8C90");
+  x.save(); x.translate(240, 452);
   x.fillStyle = "#14A3A6";
   for (let i = 0; i < 16; i++){
     x.rotate(Math.PI/8);
-    x.beginPath(); x.moveTo(0,0); x.lineTo(52,-9); x.lineTo(52,9); x.closePath(); x.fill();
+    x.beginPath(); x.moveTo(0,0); x.lineTo(56,-10); x.lineTo(56,10); x.closePath(); x.fill();
   }
   x.restore();
-  disc(222, 368, 34, "#F2F6F7");
-  x.save(); x.translate(222, 368); x.fillStyle = "#118A8E";
+  disc(240, 452, 40, "#F2F6F7");
+  disc(240, 452, 34, "#E8F4F5");
+  x.save(); x.translate(240, 452); x.fillStyle = "#2E7BD6";
   x.beginPath();
   for (let i = 0; i < 5; i++){
     const a = -Math.PI/2 + i*2*Math.PI/5;
     const b = a + Math.PI/5;
-    x.lineTo(Math.cos(a)*24, Math.sin(a)*24);
-    x.lineTo(Math.cos(b)*10, Math.sin(b)*10);
+    x.lineTo(Math.cos(a)*26, Math.sin(a)*26);
+    x.lineTo(Math.cos(b)*11, Math.sin(b)*11);
   }
   x.closePath(); x.fill();
   x.restore();
+  // białe kulki po bokach tarczy
+  [[172,486],[308,486]].forEach(([bx,by]) => {
+    const bg2 = x.createRadialGradient(bx-3,by-3,1, bx,by,11);
+    bg2.addColorStop(0,"#FFFFFF"); bg2.addColorStop(1,"#C9CFD9");
+    x.beginPath(); x.arc(bx,by,11,0,7); x.fillStyle = bg2; x.fill();
+  });
+  // pomarańczowe strzałki przy tarczy
+  [[196,510,-1],[284,510,1]].forEach(([ax,ay,dir]) => {
+    x.save(); x.translate(ax,ay); x.rotate(dir*Math.PI/4);
+    x.fillStyle = "#FF8A00"; x.strokeStyle = "#FFFFFF"; x.lineWidth = 3;
+    x.beginPath();
+    x.moveTo(0,-26); x.lineTo(14,-4); x.lineTo(6,-4); x.lineTo(6,18);
+    x.lineTo(-6,18); x.lineTo(-6,-4); x.lineTo(-14,-4);
+    x.closePath(); x.fill(); x.stroke();
+    x.restore();
+  });
+  // żółte i pomarańczowe kropki
+  [[222,548,7,"#FFD400"],[258,548,7,"#FFD400"],[214,598,8,"#FF8A00"],[266,598,8,"#FF8A00"]].forEach(([dx,dy,dr,dc]) => {
+    x.beginPath(); x.arc(dx,dy,dr,0,7);
+    x.fillStyle = dc; x.fill();
+    x.beginPath(); x.arc(dx-dr*0.3, dy-dr*0.3, dr*0.35, 0, 7);
+    x.fillStyle = "rgba(255,255,255,.6)"; x.fill();
+  });
+  // czerwone mini-kapsuły przy rogach rynny
+  [[100,668,140,696],[344,668,304,696]].forEach(([x1,y1,x2,y2]) => {
+    x.lineCap = "round";
+    x.lineWidth = 16; x.strokeStyle = "#FFFFFF";
+    x.beginPath(); x.moveTo(x1,y1); x.lineTo(x2,y2); x.stroke();
+    x.lineWidth = 12; x.strokeStyle = "#E23131";
+    x.beginPath(); x.moveTo(x1,y1); x.lineTo(x2,y2); x.stroke();
+    x.beginPath(); x.arc(x1,y1,2.5,0,7); x.fillStyle = "#D9DDE6"; x.fill();
+    x.beginPath(); x.arc(x2,y2,2.5,0,7); x.fillStyle = "#D9DDE6"; x.fill();
+  });
   // kolorowe trójkąciki przy bandach
   const tri = (tx,ty,s,col,rot) => {
     x.save(); x.translate(tx,ty); x.rotate(rot||0);
@@ -1924,11 +2006,39 @@ function drawBeeG(x,y,r,wings){
 function drawTable(){
   bgLayer.visible = true;
 
-  // rynny (falujące) — srebrne szyny
+  // rynny (falujące) — czarne błyszczące prowadnice jak w klasyku
   [[funnelL.x1,funnelL.y1,funnelL.x2,funnelL.y2],[funnelR.x1,funnelR.y1,funnelR.x2,funnelR.y2]].forEach(([a,b2,c2,d]) => {
-    ln(a,b2,c2,d, 9, COL.railLo);
-    ln(a,b2,c2,d, 6, COL.rail);
-    ln(a,b2,c2,d, 2, COL.railHi);
+    ln(a,b2,c2,d, 12, "#FFFFFF");
+    ln(a,b2,c2,d, 9, "#14141C");
+    ln(a,b2,c2,d, 3, "#3A3A46");
+    cir(c2, d, 3, COL.rail, 1);
+  });
+
+  // czerwone ukośne prowadnice ze śrubkami
+  RAILS_RED.forEach(r => {
+    ln(r[0],r[1],r[2],r[3], 20, "#FFFFFF");
+    ln(r[0],r[1],r[2],r[3], 15, COL.red);
+    ln(r[0]+2,r[1]-3,r[2]+2,r[3]-3, 4, "#FF8A80", 0.8);
+    cir(r[0],r[1],2.5, COL.rail, 1);
+    cir(r[2],r[3],2.5, COL.rail, 1);
+  });
+
+  // niebieskie pionowe kapsuły
+  PODS_BLUE.forEach(p => {
+    ln(p[0],p[1],p[2],p[3], 26, "#FFFFFF");
+    ln(p[0],p[1],p[2],p[3], 20, COL.blue);
+    ln(p[0]-4,p[1]+3,p[2]-4,p[3]-3, 5, "#7FB2FF", 0.85);
+    cir(p[0],p[1],2.5, COL.rail, 1);
+    cir(p[2],p[3],2.5, COL.rail, 1);
+  });
+
+  // medaliony punktowe 10/25/50 (podświetlony pulsuje)
+  MEDALS.forEach((m, mi) => {
+    const lit = medalLit() === mi;
+    if (lit) cir(m.x, m.y, 19 + Math.sin(T*6)*2, COL.goldHi, 0.35);
+    cir(m.x, m.y, 15, COL.gold, 1, "#FFFFFF", 2.5);
+    cir(m.x, m.y, 11, lit ? "#FFF7DC" : "#FFEBB0", 1, "#B98A1E", 1);
+    text(String(m.v), m.x, m.y+1, 11, "#7A4E00", "center", 0);
   });
 
   // bramka jednokierunkowa
@@ -1968,14 +2078,13 @@ function drawTable(){
     } else text("?", mystery.x, mystery.y+1, 14, COL.goldHi, "center", 4);
   }
 
-  // strzałki orbit (pomarańczowe jak w klasyku)
+  // słoneczka orbit przy bandach (świecą, gdy druga strona uzbrojona)
   ORBIT.forEach((o, side) => {
     const armed = orbitLast.side === 1 - side && T - orbitLast.t < 2.4;
-    ga(armed ? 1 : 0.5);
-    const dir = side === 0 ? 1 : -1;
-    poly([o.x - dir*10, o.y + 12, o.x + dir*8, o.y, o.x - dir*10, o.y - 12, o.x - dir*4, o.y],
-         COL.orange, 1, "#FFFFFF", 1.5);
-    ga(1);
+    if (armed) cir(o.x, o.y, 19, COL.goldHi, 0.4);
+    poly(starPoly(o.x, o.y, 12, 15, 9, T*0.5), "#E08A00", 1, "#FFFFFF", 2);
+    cir(o.x, o.y, 7, "#FFF7DC", 1);
+    cir(o.x, o.y, 3.5, COL.red, 1);
   });
 
   // kwiaty
@@ -1998,11 +2107,12 @@ function drawTable(){
     ga(1);
   });
 
-  // rollovery B-Z-Z-Z — złote medaliony
+  // rollovery B-Z-Z-Z — złote gwiazdki w osi stołu
   letters.forEach(L => {
-    cir(L.x, L.y, 13, L.lit ? COL.goldHi : "#B98A1E", 1, L.lit ? "#FFFFFF" : "#7A5A10", 2.5);
-    cir(L.x, L.y, 9, null, 0, L.lit ? "#FFFFFF" : "#7A5A10", 1);
-    text(L.ch, L.x, L.y+1, 12, L.lit ? "#7A1E00" : "#FFEFD6", "center", L.lit ? 4 : 0);
+    if (L.lit) cir(L.x, L.y, 16, COL.goldHi, 0.4);
+    cir(L.x, L.y, 12, L.lit ? "#FFFFFF" : COL.gold, 1, L.lit ? COL.gold : "#B98A1E", 2.5);
+    poly(starPoly(L.x, L.y, 5, 8, 3.5, -Math.PI/2), L.lit ? COL.magenta : "#FFF7DC", 1);
+    text(L.ch, L.x, L.y+1, 7, L.lit ? "#7A1E00" : "#7A4E00", "center", 0);
   });
 
   // slingshoty — pomarańczowe strzały
@@ -2013,19 +2123,18 @@ function drawTable(){
          hot ? "#FFB25E" : COL.orange, 1, "#FFFFFF", 2.5);
   });
 
-  // bumpery: boczne dyski + środkowy starburst magenta
+  // bumpery: wielki różowy starburst + dwie turkusowe kropki
   bumpers.forEach((p,i) => {
     const f = p.flash;
     if (i === 2){
-      poly(starPoly(p.x, p.y, 14, p.r + 8 + f*5, p.r - 4, T*0.3), COL.magenta, 0.9);
-      cir(p.x, p.y, p.r - 2, f>0 ? "#FFFFFF" : "#F7A6EF", 1, "#FFFFFF", 2);
-      text(String(p.score), p.x, p.y, 11, "#8E1583", "center", 0);
+      cir(p.x, p.y, p.r + 14 + f*5, "#FF9BE8", 0.35 + f*0.3);
+      cir(p.x, p.y, p.r + 6, "#FFFFFF", 1, "#F0D9EC", 1.5);
+      poly(starPoly(p.x, p.y, 16, p.r + 2, p.r*0.5, T*0.4), f>0 ? "#FFFFFF" : COL.magenta, 1);
+      cir(p.x, p.y, 7, "#7A1E8C", 1);
+      text(String(p.score), p.x, p.y + p.r + 18, 10, "#8E1583", "center", 0);
     } else {
-      const col = i === 0 ? COL.blue : COL.red;
-      cir(p.x, p.y, p.r + f*4, col, 1, "#FFFFFF", 3);
-      cir(p.x - p.r*0.3, p.y - p.r*0.35, p.r*0.35, "#FFFFFF", 0.45);
-      cir(p.x, p.y, p.r*0.55, f>0 ? "#FFFFFF" : "#FFEFD6", 0.95);
-      text(String(p.score), p.x, p.y, 11, COL.ink, "center", 0);
+      cir(p.x, p.y, p.r + f*4, f>0 ? "#FFFFFF" : "#1FB9D8", 1, "#FFFFFF", 2.5);
+      cir(p.x - p.r*0.3, p.y - p.r*0.35, p.r*0.35, "#FFFFFF", 0.6);
     }
   });
 
@@ -2091,12 +2200,18 @@ function drawTable(){
     cir(rotor.x, rotor.y, 7, COL.red, 1, "#FFFFFF", 2);
   }
 
-  // drop targety — złote pastylki
+  // drop targety — niebieskie ukośne listwy z ząbkami
   targets.forEach(tg => {
     if (tg.dead) return;
-    ln(tg.x - tg.len/2, tg.y, tg.x + tg.len/2, tg.y, tg.r*2+3, "#7A5A10");
-    ln(tg.x - tg.len/2, tg.y, tg.x + tg.len/2, tg.y, tg.r*2-1, COL.gold);
-    ln(tg.x - tg.len/2, tg.y - 2, tg.x + tg.len/2, tg.y - 2, 2, COL.goldHi);
+    const [tx1, ty1, tx2, ty2] = targetEnds(tg);
+    ln(tx1, ty1, tx2, ty2, tg.r*2+5, "#FFFFFF");
+    ln(tx1, ty1, tx2, ty2, tg.r*2, COL.blue);
+    // ząbki po zewnętrznej stronie
+    const nx = -Math.sin(tg.ang), ny = Math.cos(tg.ang);
+    for (let k = 0; k <= 3; k++){
+      const px = tx1 + (tx2-tx1)*k/3, py = ty1 + (ty2-ty1)*k/3;
+      ln(px - nx*7, py - ny*7, px - nx*12, py - ny*12, 2.5, "#FFFFFF");
+    }
   });
 
   // tunel
