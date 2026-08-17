@@ -34,24 +34,25 @@
   .cabinet{
     position:relative;line-height:0;
     border-radius:18px;
-    padding:26px;
+    padding:34px;
     background:#200A1D;
     box-shadow:0 0 34px rgba(0,0,0,.8), inset 0 0 26px rgba(0,0,0,.75);
   }
   .cabinet::before{
     content:"";position:absolute;inset:4px;border-radius:15px;pointer-events:none;
     background-image:
-      radial-gradient(circle 6px at 13px 13px, #FFE066 0 5px, rgba(255,224,102,.35) 6px, transparent 8px),
-      radial-gradient(circle 6px at 13px 13px, #66E0FF 0 5px, rgba(102,224,255,.35) 6px, transparent 8px),
-      radial-gradient(circle 6px at 13px 13px, #FF6BD5 0 5px, rgba(255,107,213,.35) 6px, transparent 8px),
-      radial-gradient(circle 6px at 13px 13px, #8AFF66 0 5px, rgba(138,255,102,.35) 6px, transparent 8px);
-    background-size:52px 52px, 52px 52px, 52px 52px, 52px 52px;
-    background-position:0 0, 26px 26px, 0 26px, 26px 0;
+      radial-gradient(circle at 20px 20px, #FFE066 0 7px, rgba(255,224,102,.4) 8px, transparent 13px),
+      radial-gradient(circle at 20px 20px, #66E0FF 0 7px, rgba(102,224,255,.4) 8px, transparent 13px),
+      radial-gradient(circle at 20px 20px, #FF6BD5 0 7px, rgba(255,107,213,.4) 8px, transparent 13px),
+      radial-gradient(circle at 20px 20px, #FF8A3C 0 7px, rgba(255,138,60,.4) 8px, transparent 13px);
+    background-size:80px 80px, 80px 80px, 80px 80px, 80px 80px;
+    background-position:0 0, 40px 0, 0 40px, 40px 40px;
+    background-repeat:round;
     -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite:xor;
             mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
             mask-composite:exclude;
-    padding:22px;
+    padding:30px;
     animation:marquee 1.2s steps(2) infinite, hue 9s linear infinite;
   }
   @keyframes marquee{50%{background-position:26px 26px, 0 0}}
@@ -64,7 +65,7 @@
   }
   /* CRT: delikatne skanlinie + winieta */
   .cabinet::after{
-    content:"";position:absolute;inset:26px;border-radius:10px;pointer-events:none;
+    content:"";position:absolute;inset:34px;border-radius:10px;pointer-events:none;
     background:
       repeating-linear-gradient(to bottom, rgba(0,0,0,.08) 0 1px, transparent 1px 3px),
       radial-gradient(115% 115% at 50% 45%, transparent 68%, rgba(0,0,0,.38) 100%);
@@ -283,7 +284,7 @@ const MISSION_POOL = [
 let mission = null, missionT = 15;
 
 /* ---------- mystery hole (Theatre of Magic): losowa nagroda albo pech ---------- */
-const mystery = { x: 390, y: 340, r: 14, cool: 0, spin: 0 };
+const mystery = { x: 392, y: 415, r: 14, cool: 0, spin: 0 };
 function applyMysteryResult(){
   const roll = rand();
   if (roll < 0.22){
@@ -311,7 +312,7 @@ function applyMysteryResult(){
 }
 
 /* ---------- pełne orbity wokół łuku ---------- */
-const ORBIT = [ {x:50, y:245, r:26}, {x:394, y:245, r:26} ];   // złote słoneczka przy bandach
+const ORBIT = [ {x:48, y:248, r:26}, {x:396, y:248, r:26} ];   // złote słoneczka przy bandach
 const orbitLast = { side: -1, t: -9 };
 let loopChain = 0, lastLoopT = -9;
 
@@ -489,24 +490,24 @@ seg(314,528,272,598,{kick:330,score:50,rest:1});
 seg(314,528,314,585,{rest:.5}); seg(272,598,314,585,{rest:.5});
 
 const bumpers = [
-  {x:204,y:242,r:13,score:100,flash:0,c:"#1FB9D8"},
-  {x:280,y:242,r:13,score:100,flash:0,c:"#1FB9D8"},
-  {x:240,y:158,r:28,score:150,flash:0,c:"#E84FD9"},   // wielki różowy starburst
+  {x:150,y:189,r:14,score:100,flash:0,c:"#29B8E8"},
+  {x:294,y:189,r:14,score:100,flash:0,c:"#29B8E8"},
+  {x:222,y:132,r:30,score:150,flash:0,c:"#E84FD9"},   // wielki różowy starburst
 ];
 const posts = [ {x:424,y:300,r:5} ];
 
-// czerwone ukośne prowadnice i niebieskie kapsuły (kolizje-kapsuły, jak w oryginale)
+// czerwone kapsuły promieniują w dół na zewnątrz od starburstu (jak w oryginale)
 const RAILS_RED = [
-  [108,192,178,240], [92,282,162,330],
-  [336,192,266,240], [352,282,282,330],
+  [198,192,130,258], [246,192,314,258],
+  [196,286, 96,344], [248,286,348,344],
 ];
-const PODS_BLUE = [ [118,545,118,585], [362,545,362,585] ];
+const PODS_BLUE = [ [100,445,100,510], [344,445,344,510] ];
 
-// medaliony punktowe 10/25/50 pod łukiem; podświetlony daje ×10
+// medaliony punktowe: 25 najwyżej, 10 i 50 niżej po bokach; podświetlony daje ×10
 const MEDALS = [
-  {x:158,y:100,v:10,cool:0},
-  {x:240,y:105,v:25,cool:0},
-  {x:322,y:100,v:50,cool:0},
+  {x:136,y:92,v:10,r:19,cool:0},
+  {x:222,y:54,v:25,r:21,cool:0},
+  {x:308,y:92,v:50,r:19,cool:0},
 ];
 function medalLit(){ return Math.floor(T/3) % 3; }
 
@@ -520,14 +521,14 @@ const stars = Array.from({length:42}, () => ({
 let targets = [];
 function spawnTargets(){
   const count = Math.min(3 + Math.floor((level-1)/2), 5);
-  // dwie ukośne niebieskie listwy z ząbkami, jak w klasyku
-  const L = [[138,382],[166,412],[194,442]], R = [[342,382],[314,412],[286,442]];
+  // dwie długie ukośne niebieskie listwy z ząbkami, schodzące na zewnątrz
+  const L = [[142,377],[122,397],[102,418]], R = [[302,377],[322,397],[342,418]];
   const seq = [L[0], R[0], L[1], R[1], L[2]];
   targets = [];
   for (let i = 0; i < count; i++){
     const p = seq[i];
     targets.push({ x: p[0], y: p[1], len: 30, r: 6,
-                   ang: p[0] < 222 ? 0.82 : Math.PI - 0.82,
+                   ang: p[0] < 222 ? 2.34 : 0.80,
                    dead: false, flash: 0 });
   }
 }
@@ -540,12 +541,12 @@ function targetEnds(tg){
 /* ---------- rollovery B-Z-Z-Z pod łukiem ---------- */
 let letters = [];
 function resetLetters(){
-  // kolumna złotych gwiazdek-rolloverów w osi stołu
+  // romb złotych gwiazdek-rolloverów nad tarczą, w osi stołu
   letters = [
-    { ch:"B", x:240, y:300, lit:false },
-    { ch:"Z", x:205, y:345, lit:false },
-    { ch:"Z", x:275, y:345, lit:false },
-    { ch:"Z", x:240, y:390, lit:false },
+    { ch:"B", x:222, y:214, lit:false },
+    { ch:"Z", x:184, y:252, lit:false },
+    { ch:"Z", x:260, y:252, lit:false },
+    { ch:"Z", x:222, y:290, lit:false },
   ];
 }
 resetLetters();
@@ -560,7 +561,7 @@ const PICKUP_TYPES = [
   { k:"1UP",    c:"#7CFF6B", w:10 },
   { k:"TV",     c:"#9BE8FF", w:12 },
 ];
-const PICKUP_SLOTS = [ [100,340],[344,340],[70,250],[374,250],[240,258] ];
+const PICKUP_SLOTS = [ [70,310],[374,310],[150,150],[294,150],[222,470] ];
 let pickups = [], pickupTimer = 6;
 
 /* ---------- klątwy: kolczaste kapsułki, których lepiej unikać ---------- */
@@ -571,7 +572,7 @@ const HAZARD_TYPES = [
   { k:"FOG",    c:"#8A93B8", sym:"☁", w:16 },
   { k:"HONEY",  c:"#FFB020", sym:"≈", w:18 },
 ];
-const HONEY_SLOTS = [ [165,500],[315,500],[240,550],[240,258] ];
+const HONEY_SLOTS = [ [150,480],[294,480],[222,530],[160,240] ];
 let hazTimer = 14;
 function spawnHazard(){
   if (pickups.filter(p => p.bad).length >= 2) return;
@@ -647,7 +648,7 @@ function applyPickup(p, b){
 }
 
 /* ---------- futurystyczny tunel (od poziomu 2) ---------- */
-const PORTAL_OUTS = [ [352,112], [128,112], [60,180], [384,180] ];
+const PORTAL_OUTS = [ [352,112], [128,112], [92,120], [384,180] ];
 const portal = {
   in: {x:64, y:440, r:13}, out: {x:352, y:112, r:13},
   cool: 0, moveT: 12, blink: 0,
@@ -673,11 +674,11 @@ function laserX(i){
 const LASER_HALF = 40, LASER_R = 5;
 
 /* ---------- wir magnetyczny (poziom 4+) ---------- */
-const vortex = { x:240, y:452, R:110, F:280 };   // wir mieszka w turkusowej tarczy
+const vortex = { x:222, y:362, R:110, F:280 };   // wir mieszka w turkusowej tarczy
 function vortexActive(){ return level >= 4; }
 
 /* ---------- wiatrak (poziom 5+) ---------- */
-const rotor = { x:240, y:452, len:42, r:5 };   // wiatrak kręci się na tarczy z gwiazdą
+const rotor = { x:222, y:362, len:42, r:5 };   // wiatrak kręci się na tarczy z gwiazdą
 function rotorActive(){ return level >= 5; }
 function rotorAng(){ return T * (2.0 + 0.15*level); }
 
@@ -888,7 +889,7 @@ function stepInvaders(dt){
 }
 
 /* ---------- UL: bonusowy stół-pachinko w plastrze miodu ---------- */
-const hiveHole = { x: 240, y: 50, r: 13, cool: 8 };
+const hiveHole = { x: 60, y: 178, r: 13, cool: 8 };
 const hv = { x: 240, y: 90, vx: 0, vy: 0, t: 0, pegs: [], bonus: -1, done: 0, ball: null };
 (function(){
   for (let r = 0; r < 5; r++)
@@ -1302,7 +1303,7 @@ function step(dt){
   if (honey.t > 0) honey.t = Math.max(0, honey.t - dt);
 
   // bumper centralny ucieka od poziomu 7
-  bumpers[2].x = level >= 7 ? 240 + Math.sin(T*1.1)*58 : 240;
+  bumpers[2].x = level >= 7 ? 222 + Math.sin(T*1.1)*58 : 222;
 
   // pojawianie się bonusów
   pickupTimer -= dt;
@@ -1480,7 +1481,7 @@ function step(dt){
     // medaliony punktowe: podświetlony daje ×10
     MEDALS.forEach((m, mi) => {
       if (m.cool > 0) return;
-      if (Math.hypot(b.x-m.x, b.y-m.y) < 15 + b.r){
+      if (Math.hypot(b.x-m.x, b.y-m.y) < m.r + b.r){
         m.cool = 1.2;
         const lit = medalLit() === mi;
         const base = m.v * (lit ? 10 : 1);
@@ -1735,46 +1736,56 @@ function buildFieldTexture(){
     x.arc(240, 760, 900, a1, a2);
     x.closePath(); x.fill();
   }
-  // wielka turkusowa tarcza z gwiazdą w centrum (jak w klasyku)
+  // wielka turkusowa tarcza z gwiazdą w geometrycznym środku pola
+  const DCX = 222, DCY = 362;
   const disc = (cx,cy,r,fill) => { x.beginPath(); x.arc(cx,cy,r,0,7); x.fillStyle=fill; x.fill(); };
-  disc(240, 452, 62, "#0E8C90");
-  x.save(); x.translate(240, 452);
+  disc(DCX, DCY, 64, "#0E8C90");
+  // karbowany zewnętrzny pierścień (białe kreski)
+  x.strokeStyle = "rgba(255,255,255,.75)"; x.lineWidth = 4;
+  for (let i = 0; i < 24; i++){
+    const a = i*Math.PI/12;
+    x.beginPath();
+    x.moveTo(DCX + Math.cos(a)*52, DCY + Math.sin(a)*52);
+    x.lineTo(DCX + Math.cos(a)*62, DCY + Math.sin(a)*62);
+    x.stroke();
+  }
+  x.save(); x.translate(DCX, DCY);
   x.fillStyle = "#14A3A6";
   for (let i = 0; i < 16; i++){
     x.rotate(Math.PI/8);
-    x.beginPath(); x.moveTo(0,0); x.lineTo(56,-10); x.lineTo(56,10); x.closePath(); x.fill();
+    x.beginPath(); x.moveTo(0,0); x.lineTo(50,-9); x.lineTo(50,9); x.closePath(); x.fill();
   }
   x.restore();
-  disc(240, 452, 40, "#F2F6F7");
-  disc(240, 452, 34, "#E8F4F5");
-  x.save(); x.translate(240, 452); x.fillStyle = "#2E7BD6";
+  disc(DCX, DCY, 44, "#F2F6F7");
+  disc(DCX, DCY, 37, "#E8F4F5");
+  x.save(); x.translate(DCX, DCY); x.fillStyle = "#2E7BD6";
   x.beginPath();
   for (let i = 0; i < 5; i++){
     const a = -Math.PI/2 + i*2*Math.PI/5;
     const b = a + Math.PI/5;
-    x.lineTo(Math.cos(a)*26, Math.sin(a)*26);
-    x.lineTo(Math.cos(b)*11, Math.sin(b)*11);
+    x.lineTo(Math.cos(a)*28, Math.sin(a)*28);
+    x.lineTo(Math.cos(b)*12, Math.sin(b)*12);
   }
   x.closePath(); x.fill();
   x.restore();
   // białe kulki po bokach tarczy
-  [[172,486],[308,486]].forEach(([bx,by]) => {
+  [[146,412],[298,412]].forEach(([bx,by]) => {
     const bg2 = x.createRadialGradient(bx-3,by-3,1, bx,by,11);
     bg2.addColorStop(0,"#FFFFFF"); bg2.addColorStop(1,"#C9CFD9");
     x.beginPath(); x.arc(bx,by,11,0,7); x.fillStyle = bg2; x.fill();
   });
-  // pomarańczowe strzałki przy tarczy
-  [[196,510,-1],[284,510,1]].forEach(([ax,ay,dir]) => {
+  // wielkie pomarańczowe strzałki celujące w górę na zewnątrz
+  [[170,424,-1],[274,424,1]].forEach(([ax,ay,dir]) => {
     x.save(); x.translate(ax,ay); x.rotate(dir*Math.PI/4);
-    x.fillStyle = "#FF8A00"; x.strokeStyle = "#FFFFFF"; x.lineWidth = 3;
+    x.fillStyle = "#FF8A00"; x.strokeStyle = "#FFFFFF"; x.lineWidth = 3.5;
     x.beginPath();
-    x.moveTo(0,-26); x.lineTo(14,-4); x.lineTo(6,-4); x.lineTo(6,18);
-    x.lineTo(-6,18); x.lineTo(-6,-4); x.lineTo(-14,-4);
+    x.moveTo(0,-34); x.lineTo(18,-6); x.lineTo(8,-6); x.lineTo(8,24);
+    x.lineTo(-8,24); x.lineTo(-8,-6); x.lineTo(-18,-6);
     x.closePath(); x.fill(); x.stroke();
     x.restore();
   });
   // żółte i pomarańczowe kropki
-  [[222,548,7,"#FFD400"],[258,548,7,"#FFD400"],[214,598,8,"#FF8A00"],[266,598,8,"#FF8A00"]].forEach(([dx,dy,dr,dc]) => {
+  [[200,462,7,"#FFD400"],[244,462,7,"#FFD400"],[184,517,8,"#FF8A00"],[260,517,8,"#FF8A00"]].forEach(([dx,dy,dr,dc]) => {
     x.beginPath(); x.arc(dx,dy,dr,0,7);
     x.fillStyle = dc; x.fill();
     x.beginPath(); x.arc(dx-dr*0.3, dy-dr*0.3, dr*0.35, 0, 7);
@@ -1823,6 +1834,7 @@ function buildFieldTexture(){
     x.stroke();
     x.beginPath(); x.moveTo(424, 300); x.lineTo(424, 720); x.stroke();
   };
+  rail(22, COL.outside);   // ciemna szczelina między szyną a polem
   rail(9, COL.railLo);
   rail(6, COL.rail);
   rail(2, COL.railHi);
@@ -2035,10 +2047,12 @@ function drawTable(){
   // medaliony punktowe 10/25/50 (podświetlony pulsuje)
   MEDALS.forEach((m, mi) => {
     const lit = medalLit() === mi;
-    if (lit) cir(m.x, m.y, 19 + Math.sin(T*6)*2, COL.goldHi, 0.35);
-    cir(m.x, m.y, 15, COL.gold, 1, "#FFFFFF", 2.5);
-    cir(m.x, m.y, 11, lit ? "#FFF7DC" : "#FFEBB0", 1, "#B98A1E", 1);
-    text(String(m.v), m.x, m.y+1, 11, "#7A4E00", "center", 0);
+    if (lit) cir(m.x, m.y, m.r + 6 + Math.sin(T*6)*2, COL.goldHi, 0.4);
+    cir(m.x, m.y, m.r + 3, "#FFFFFF", 1);
+    cir(m.x, m.y, m.r, COL.gold, 1, "#D99B00", 1.5);
+    arc(m.x, m.y, m.r - 2, Math.PI*0.15, Math.PI*0.85, 3, "#B97413", 0.7);   // faza 3D
+    cir(m.x, m.y, m.r - 6, lit ? "#FFFFFF" : "#FFF3CC", 1, "#D99B00", 1);
+    text(String(m.v), m.x, m.y+1, 14, "#B04A00", "center", 0);
   });
 
   // bramka jednokierunkowa
@@ -2127,13 +2141,15 @@ function drawTable(){
   bumpers.forEach((p,i) => {
     const f = p.flash;
     if (i === 2){
-      cir(p.x, p.y, p.r + 14 + f*5, "#FF9BE8", 0.35 + f*0.3);
-      cir(p.x, p.y, p.r + 6, "#FFFFFF", 1, "#F0D9EC", 1.5);
-      poly(starPoly(p.x, p.y, 16, p.r + 2, p.r*0.5, T*0.4), f>0 ? "#FFFFFF" : COL.magenta, 1);
-      cir(p.x, p.y, 7, "#7A1E8C", 1);
-      text(String(p.score), p.x, p.y + p.r + 18, 10, "#8E1583", "center", 0);
+      // różowa poświata → biała tarcza z promykami → fioletowy starburst
+      cir(p.x, p.y, p.r + 24 + f*5, "#FF9BE8", 0.22 + f*0.2);
+      cir(p.x, p.y, p.r + 16, "#FF9BE8", 0.35 + f*0.2);
+      poly(starPoly(p.x, p.y, 20, p.r + 8, p.r + 3, T*0.15), "#FFFFFF", 1);
+      cir(p.x, p.y, p.r + 1, "#FFFFFF", 1);
+      poly(starPoly(p.x, p.y, 16, p.r - 3, p.r*0.32, T*0.4), f>0 ? "#FFFFFF" : "#C42CB4", 1);
+      cir(p.x, p.y, 6, "#5E1470", 1);
     } else {
-      cir(p.x, p.y, p.r + f*4, f>0 ? "#FFFFFF" : "#1FB9D8", 1, "#FFFFFF", 2.5);
+      cir(p.x, p.y, p.r + f*4, f>0 ? "#FFFFFF" : "#29B8E8", 1, "#FFFFFF", 2.5);
       cir(p.x - p.r*0.3, p.y - p.r*0.35, p.r*0.35, "#FFFFFF", 0.6);
     }
   });
